@@ -1,7 +1,25 @@
 # Haeckel LoRA: Generative Diffusion on *Kunstformen der Natur*
 
-> **Status: concept stage.** No training run has happened yet. This README describes the plan,
-> not a result — it will be rewritten in past tense as each stage actually lands.
+> **Status: data pipeline done, no training run yet.** Scraping, dedup, and captioning are
+> complete and reproducible from scratch via the scripts below. Training and eval are not
+> written yet. This README describes the plan for those — not a result.
+
+## Progress
+
+- [x] **Scrape** — all 100 plates (`scripts/scrape_plates.py`), sourced from the [Internet
+      Archive item](https://archive.org/details/KunstformenDerNaturErnstHaeckel) (BioLib.de
+      300dpi scans). Verified: 100 numbered plates + 1 cover page, ~2450x3600px each, no missing
+      or corrupt files.
+- [x] **Dedup** — `scripts/dedup_plates.py` (perceptual hash, threshold 10). Result: 0
+      near-duplicates across all 100 plates — expected, since these are 100 distinct book
+      illustrations rather than a scraped photo corpus with reprint/crop variation.
+- [x] **Caption** — `scripts/build_captions.py`. Every plate carries its own printed caption
+      (genus top-right, order + German name at the bottom), transcribed directly off each plate
+      (see `data/processed/README.md` for why — Wikimedia Commons only categorizes 51/100 plates,
+      and one of those 51 is outright wrong). Captions use the plate's own order name as the
+      structural tag rather than a handful of coarse guessed buckets.
+- [ ] **Train** — rank-16 LoRA on SD1.5's UNet cross-attention layers.
+- [ ] **Eval** — fixed prompt set sampled against training plates.
 
 A LoRA fine-tune of Stable Diffusion 1.5 on Ernst Haeckel's *Kunstformen der Natur* (1899-1904),
 exploring what a small, tight visual domain teaches a generative model that a broad one can't.

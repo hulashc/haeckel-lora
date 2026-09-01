@@ -5,5 +5,7 @@ accelerate
 peft
 safetensors
 Pillow
+imagehash
+requests
 numpy
 tqdm

@@ -7,6 +7,9 @@ __pycache__/
 venv/
 env/
 
+# scraping scratch space (the zip is deleted after extraction anyway)
+data/raw/_download/
+
 # Jupyter
 .ipynb_checkpoints/
 
@@ -15,6 +18,10 @@ data/raw/*
 data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+# ...except small, hand-verified metadata that's expensive to regenerate (plate captions were
+# transcribed visually, not scraped) and costs nothing to keep in git.
+!data/processed/plate_index.csv
+!data/processed/README.md
 outputs/checkpoints/*
 outputs/samples/*
 !outputs/checkpoints/.gitkeep
