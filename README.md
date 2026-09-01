@@ -18,6 +18,18 @@
       (see `data/processed/README.md` for why — Wikimedia Commons only categorizes 51/100 plates,
       and one of those 51 is outright wrong). Captions use the plate's own order name as the
       structural tag rather than a handful of coarse guessed buckets.
+- [x] **Full per-figure documentation** (`data/processed/plate_details.json`) — beyond the one
+      headline genus per plate, every individual numbered specimen (most plates show several,
+      e.g. Tafel 8 has 4 distinct jellyfish) with its own species name, author, and description,
+      sourced from Haeckel's actual companion explanatory volume (a *different* archive.org item
+      than the plates themselves — see `data/processed/README.md`). 1102 figures across 100
+      plates. This was a genuinely bug-prone pipeline (OCR page-boundary bugs, and two real
+      LLM-fabrication incidents caught by cross-checking every extracted species name against its
+      own source text) — the full incident writeup is in `data/processed/README.md` because the
+      failure modes are worth knowing if this pipeline gets reused elsewhere. Two plates have
+      honestly-documented gaps rather than invented content: plate 85's explanatory text is
+      confirmed absent from the scan (empty `figures` list, stated why in its `taxonomy` field);
+      plates 63 and 90 are missing their first 1-3 figures to scan damage.
 - [ ] **Train** — rank-16 LoRA on SD1.5's UNet cross-attention layers.
 - [ ] **Eval** — fixed prompt set sampled against training plates.
 

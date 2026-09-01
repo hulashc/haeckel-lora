@@ -7,5 +7,6 @@ safetensors
 Pillow
 imagehash
 requests
+pymupdf
 numpy
 tqdm

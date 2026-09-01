@@ -21,6 +21,7 @@ data/processed/*
 # ...except small, hand-verified metadata that's expensive to regenerate (plate captions were
 # transcribed visually, not scraped) and costs nothing to keep in git.
 !data/processed/plate_index.csv
+!data/processed/plate_details.json
 !data/processed/README.md
 outputs/checkpoints/*
 outputs/samples/*
