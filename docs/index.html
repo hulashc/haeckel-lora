@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haeckel LoRA — Generative Diffusion on Kunstformen der Natur</title>
+<meta name="description" content="A LoRA fine-tune of Stable Diffusion 1.5 on Ernst Haeckel's Kunstformen der Natur — data pipeline, training probe, and honest evaluation, in progress.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🔬%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #14120f;
+    --bg-raised: #1c1a15;
+    --ink: #eee6d3;
+    --ink-dim: #a99f8a;
+    --ink-faint: #756d5c;
+    --accent: #d1a954;
+    --accent-fill: rgba(209, 169, 84, 0.15);
+    --grid: #33301f;
+    --border: #332f26;
+    --cream: #ece2c8;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+  }
+  img { max-width: 100%; display: block; }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 1.5rem; }
+
+  a { color: var(--accent); }
+
+  h1, h2, h3 { font-family: var(--serif); font-weight: 400; color: var(--cream); }
+  h2 { font-size: 1.7rem; letter-spacing: 0.01em; }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.78rem;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ---- hero ---- */
+  .hero {
+    position: relative;
+    padding: 4.5rem 0 3.5rem;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .hero .wrap {
+    display: grid;
+    grid-template-columns: 1.3fr 0.7fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  .hero h1 { font-size: 2.9rem; margin: 0.4rem 0 1rem; }
+  .hero p.lede { font-size: 1.1rem; color: var(--ink-dim); max-width: 46ch; }
+  .hero .cover-frame {
+    justify-self: center;
+    border: 1px solid var(--border);
+    padding: 10px;
+    background: var(--bg-raised);
+    box-shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
+    transform: rotate(1.2deg);
+  }
+  .hero .cover-frame img { border: 1px solid #0008; }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.6rem;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-raised);
+    font-size: 0.85rem;
+    color: var(--ink-dim);
+  }
+  .status-badge .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px 1px var(--accent-fill);
+  }
+
+  .links { margin-top: 1.6rem; display: flex; gap: 1.4rem; font-size: 0.95rem; }
+
+  /* ---- sections ---- */
+  section { padding: 3.5rem 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  section > .wrap > p.intro { color: var(--ink-dim); max-width: 68ch; margin-top: 0.6rem; }
+
+  /* pipeline timeline */
+  .timeline { margin-top: 2rem; display: grid; gap: 1.1rem; }
+  .step {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 0.9rem;
+    align-items: start;
+  }
+  .step .marker {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    margin-top: 0.15rem;
+  }
+  .step.done .marker { background: var(--accent-fill); }
+  .step.pending .marker { border-color: var(--ink-faint); color: var(--ink-faint); }
+  .step h3 { margin: 0 0 0.3rem; font-size: 1.05rem; font-family: var(--sans); font-weight: 600; color: var(--ink); }
+  .step p { margin: 0; color: var(--ink-dim); font-size: 0.95rem; }
+  .step code { color: var(--accent); font-size: 0.85em; }
+
+  /* gallery */
+  .gallery-grid {
+    margin-top: 2rem;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.9rem;
+  }
+  .gallery-grid figure { margin: 0; position: relative; overflow: hidden; background: var(--bg-raised); }
+  .gallery-grid img { aspect-ratio: 0.72; object-fit: cover; transition: transform 0.4s ease; }
+  .gallery-grid figure:hover img { transform: scale(1.06); }
+  .gallery-grid figcaption {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 0.5rem 0.6rem;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+    font-size: 0.78rem;
+    color: var(--cream);
+  }
+  .gallery-grid figcaption .order { display: block; color: var(--ink-dim); font-size: 0.7rem; }
+
+  /* training progress strip */
+  .progress-strip {
+    margin-top: 1.6rem;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.7rem;
+  }
+  .progress-strip figure { margin: 0; }
+  .progress-strip img { border: 1px solid var(--border); }
+  .progress-strip figcaption { font-size: 0.75rem; color: var(--ink-faint); text-align: center; margin-top: 0.4rem; }
+
+  .chart-card {
+    margin-top: 2rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    padding: 1.4rem 1.2rem 0.6rem;
+  }
+  .chart-card h3 { margin: 0 0 0.2rem; font-size: 1rem; font-family: var(--sans); font-weight: 600; color: var(--ink); }
+  .chart-card .stat { color: var(--accent); font-family: var(--sans); font-weight: 600; }
+  .axis-label { fill: var(--ink-faint); font-size: 10px; font-family: var(--sans); }
+  .loss-chart { width: 100%; height: auto; }
+
+  /* eval */
+  .compare-figure { margin: 0 0 1.8rem; }
+  .compare-figure img { border: 1px solid var(--border); width: 100%; }
+  .compare-figure figcaption { margin-top: 0.5rem; font-size: 0.88rem; color: var(--ink-dim); }
+  .compare-figure figcaption .label { color: var(--accent); font-weight: 600; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-fill);
+    padding: 0.9rem 1.1rem;
+    margin: 1.5rem 0;
+    font-size: 0.92rem;
+    color: var(--ink);
+  }
+
+  .novel-grid {
+    margin-top: 1.6rem;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.9rem;
+  }
+  .novel-grid figure { margin: 0; background: var(--bg-raised); border: 1px solid var(--border); }
+  .novel-grid figcaption { padding: 0.5rem 0.6rem; font-size: 0.78rem; color: var(--ink-dim); }
+
+  /* status */
+  .status-grid { margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+  .status-grid h3 { font-size: 1rem; font-family: var(--sans); font-weight: 600; color: var(--ink); margin-bottom: 0.7rem; }
+  .status-grid ul { margin: 0; padding-left: 1.2rem; color: var(--ink-dim); font-size: 0.93rem; }
+  .status-grid li { margin-bottom: 0.5rem; }
+
+  footer { padding: 2.5rem 0 3.5rem; color: var(--ink-faint); font-size: 0.85rem; }
+  footer a { color: var(--ink-dim); }
+
+  @media (max-width: 760px) {
+    .hero .wrap { grid-template-columns: 1fr; }
+    .hero .cover-frame { order: -1; max-width: 220px; }
+    .gallery-grid { grid-template-columns: repeat(2, 1fr); }
+    .progress-strip { grid-template-columns: repeat(3, 1fr); }
+    .novel-grid { grid-template-columns: repeat(2, 1fr); }
+    .status-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <div class="eyebrow">Ernst Haeckel × Stable Diffusion 1.5</div>
+      <h1>Haeckel LoRA</h1>
+      <p class="lede">
+        A LoRA fine-tune trained on all 100 plates of <em>Kunstformen der Natur</em> (1899–1904),
+        exploring what a small, tight visual domain teaches a generative model that a broad one
+        can't — and whether it can dream up specimens Haeckel never drew, in a style he'd
+        recognize as his own.
+      </p>
+      <div class="status-badge"><span class="dot"></span> Research in progress — data pipeline done, first training probe complete, longer run next</div>
+      <div class="links">
+        <a href="https://github.com/hulashc/haeckel-lora">GitHub repo →</a>
+        <a href="https://en.wikipedia.org/wiki/Kunstformen_der_Natur">About Kunstformen der Natur →</a>
+      </div>
+    </div>
+    <div class="cover-frame">
+      <img src="assets/cover.jpg" alt="Cover page of Ernst Haeckel's Kunstformen der Natur, 1904">
+    </div>
+  </div>
+</header>
+
+<section id="about">
+  <div class="wrap">
+    <div class="eyebrow">Why Haeckel</div>
+    <h2>One hundred plates, one visual signature</h2>
+    <p class="intro">
+      <em>Kunstformen der Natur</em> is public domain, ~100 plates, and every plate follows the
+      same recipe: a single biological specimen, often radially symmetric, rendered as a
+      lithograph on a warm cream background with fine line work and saturated earth-tone ink.
+      That signature is strong enough that an output either looks like Haeckel or obviously
+      doesn't — which makes a model's progress genuinely inspectable rather than a
+      vibes-based "looks cool to me" call.
+    </p>
+    <p class="intro">
+      Haeckel was also drawing things — deep-sea radiolaria, siphonophores — that nobody had seen
+      in this kind of detail before. A model that interpolates between plates should produce
+      specimens that don't exist but feel like they could: a version of what Haeckel was doing a
+      century earlier, only now the "field notes" are weights instead of microscope slides.
+    </p>
+  </div>
+</section>
+
+<section id="pipeline">
+  <div class="wrap">
+    <div class="eyebrow">How it's built</div>
+    <h2>The pipeline</h2>
+    <div class="timeline">
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Scrape — 100 plates + cover</h3>
+          <p>300dpi scans from the Internet Archive / BioLib.de source, verified complete: no missing or corrupt files.</p>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Deduplicate</h3>
+          <p>Perceptual hashing across all 100 plates. Zero near-duplicates — expected, since these are 100 distinct illustrations, not a scraped photo corpus.</p>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Caption</h3>
+          <p>Every plate's own printed genus, order, and German name transcribed directly off the plate — more accurate than the ~51% Wikimedia Commons categorizes, and one of those is outright wrong.</p>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Full per-figure documentation</h3>
+          <p>1,102 individual specimens documented from Haeckel's own companion explanatory volume — a genuinely bug-prone pipeline (OCR page-boundary bugs, two caught LLM-fabrication incidents) with an honest incident writeup in the repo.</p>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Training script</h3>
+          <p>Rank-16 LoRA on SD1.5's UNet cross-attention (<code>to_q</code>/<code>to_k</code>/<code>to_v</code>/<code>to_out.0</code>), designed around a real 6GB VRAM ceiling: bf16 autocast, gradient checkpointing, batch size 1 + gradient accumulation.</p>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>First training run — 50-epoch probe</h3>
+          <p>1,250 steps on the full 100-image dataset, to validate the config before committing to a long run. Results below.</p>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Evaluation script</h3>
+          <p>Fixed, seeded prompt sets — faithfulness (real captions vs. generated, side-by-side) and novel recombinations — so results are comparable across checkpoints.</p>
+        </div>
+      </div>
+      <div class="step pending">
+        <div class="marker">○</div>
+        <div>
+          <h3>Longer training run</h3>
+          <p>The probe validated the setup; it did not finish converging. This is the current next step.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gallery">
+  <div class="wrap">
+    <div class="eyebrow">The source material</div>
+    <h2>A sample of the 100 plates</h2>
+    <p class="intro">Haeckel drew far beyond radiolaria and jellyfish — bats, hummingbirds, orchids, antelope. The dataset's breadth is part of what makes the training probe below interesting: 100 images spread across ~90 distinct taxonomic orders is a hard generalization problem.</p>
+    <div class="gallery-grid">
+      <figure><img src="assets/gallery/008.jpg" alt="Tafel 8, Desmonema, Discomedusae"><figcaption>Desmonema<span class="order">Discomedusae — jellyfish</span></figcaption></figure>
+      <figure><img src="assets/gallery/001.jpg" alt="Tafel 1, Circogonia, Phaeodaria"><figcaption>Circogonia<span class="order">Phaeodaria — radiolaria</span></figcaption></figure>
+      <figure><img src="assets/gallery/039.jpg" alt="Tafel 39, Gorgonia, Gorgonida"><figcaption>Gorgonia<span class="order">Gorgonida — coral</span></figcaption></figure>
+      <figure><img src="assets/gallery/074.jpg" alt="Tafel 74, Cypripedium, Orchideae"><figcaption>Cypripedium<span class="order">Orchideae — orchids</span></figcaption></figure>
+      <figure><img src="assets/gallery/099.jpg" alt="Tafel 99, Trochilus, Trochilidae"><figcaption>Trochilus<span class="order">Trochilidae — hummingbirds</span></figcaption></figure>
+      <figure><img src="assets/gallery/067.jpg" alt="Tafel 67, Vampyrus, Chiroptera"><figcaption>Vampyrus<span class="order">Chiroptera — bats</span></figcaption></figure>
+      <figure><img src="assets/gallery/042.jpg" alt="Tafel 42, Ostracion, Ostraciontes"><figcaption>Ostracion<span class="order">Ostraciontes — boxfish</span></figcaption></figure>
+      <figure><img src="assets/gallery/100.jpg" alt="Tafel 100, Antilope, Antilopina"><figcaption>Antilope<span class="order">Antilopina — antelope</span></figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="training">
+  <div class="wrap">
+    <div class="eyebrow">50-epoch probe</div>
+    <h2>Watching the style emerge</h2>
+    <p class="intro">Same prompt, same seed, sampled at each checkpoint through training. The point of this probe wasn't a finished adapter — it was checking that the config actually converges before committing hours to a longer run.</p>
+    <div class="progress-strip">
+      <figure><img src="assets/progress/step-000250.jpg" alt="Sample at step 250"><figcaption>step 250</figcaption></figure>
+      <figure><img src="assets/progress/step-000500.jpg" alt="Sample at step 500"><figcaption>step 500</figcaption></figure>
+      <figure><img src="assets/progress/step-000750.jpg" alt="Sample at step 750"><figcaption>step 750</figcaption></figure>
+      <figure><img src="assets/progress/step-001000.jpg" alt="Sample at step 1000"><figcaption>step 1000</figcaption></figure>
+      <figure><img src="assets/progress/step-001250.jpg" alt="Sample at step 1250"><figcaption>step 1250</figcaption></figure>
+    </div>
+    <div class="chart-card">
+      <h3>Training loss, per-epoch mean</h3>
+      <p style="color: var(--ink-dim); font-size: 0.88rem; margin-top: 0;">
+        <span class="stat">0.186 → 0.131</span> over 50 epochs. Diffusion MSE loss is inherently
+        noisy per-timestep — this is the honest per-epoch curve, not smoothed to look cleaner
+        than it is.
+      </p>
+      <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" class="loss-chart" role="img" aria-label="Training loss per epoch, 0 to 49">
+<line x1="44" y1="16.0" x2="704" y2="16.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="20.0" text-anchor="end" class="axis-label">0.214</text><line x1="44" y1="69.0" x2="704" y2="69.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="73.0" text-anchor="end" class="axis-label">0.187</text><line x1="44" y1="122.0" x2="704" y2="122.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="126.0" text-anchor="end" class="axis-label">0.160</text><line x1="44" y1="175.0" x2="704" y2="175.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="179.0" text-anchor="end" class="axis-label">0.133</text><line x1="44" y1="228.0" x2="704" y2="228.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="232.0" text-anchor="end" class="axis-label">0.106</text>
+<path d="M 44.0,70.3 L 57.5,76.6 L 70.9,130.5 L 84.4,154.5 L 97.9,155.4 L 111.3,204.8 L 124.8,135.1 L 138.3,108.3 L 151.8,210.3 L 165.2,186.4 L 178.7,64.4 L 192.2,125.1 L 205.6,167.5 L 219.1,118.5 L 232.6,121.1 L 246.0,122.8 L 259.5,154.7 L 273.0,159.7 L 286.4,82.9 L 299.9,126.9 L 313.4,137.1 L 326.9,101.8 L 340.3,139.6 L 353.8,119.5 L 367.3,165.1 L 380.7,192.9 L 394.2,90.1 L 407.7,99.8 L 421.1,165.6 L 434.6,177.4 L 448.1,33.7 L 461.6,188.7 L 475.0,125.0 L 488.5,163.6 L 502.0,160.3 L 515.4,185.1 L 528.9,145.2 L 542.4,147.9 L 555.8,198.1 L 569.3,94.3 L 582.8,124.4 L 596.2,156.5 L 609.7,205.7 L 623.2,191.1 L 636.7,150.1 L 650.1,159.0 L 663.6,189.5 L 677.1,106.5 L 690.5,125.4 L 704.0,179.6 L 704.0,228 L 44.0,228 Z" fill="var(--accent-fill)" stroke="none"/>
+<path d="M 44.0,70.3 L 57.5,76.6 L 70.9,130.5 L 84.4,154.5 L 97.9,155.4 L 111.3,204.8 L 124.8,135.1 L 138.3,108.3 L 151.8,210.3 L 165.2,186.4 L 178.7,64.4 L 192.2,125.1 L 205.6,167.5 L 219.1,118.5 L 232.6,121.1 L 246.0,122.8 L 259.5,154.7 L 273.0,159.7 L 286.4,82.9 L 299.9,126.9 L 313.4,137.1 L 326.9,101.8 L 340.3,139.6 L 353.8,119.5 L 367.3,165.1 L 380.7,192.9 L 394.2,90.1 L 407.7,99.8 L 421.1,165.6 L 434.6,177.4 L 448.1,33.7 L 461.6,188.7 L 475.0,125.0 L 488.5,163.6 L 502.0,160.3 L 515.4,185.1 L 528.9,145.2 L 542.4,147.9 L 555.8,198.1 L 569.3,94.3 L 582.8,124.4 L 596.2,156.5 L 609.7,205.7 L 623.2,191.1 L 636.7,150.1 L 650.1,159.0 L 663.6,189.5 L 677.1,106.5 L 690.5,125.4 L 704.0,179.6" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="44.0" y="246" text-anchor="middle" class="axis-label">ep 0</text><text x="205.6" y="246" text-anchor="middle" class="axis-label">ep 12</text><text x="380.7" y="246" text-anchor="middle" class="axis-label">ep 25</text><text x="542.4" y="246" text-anchor="middle" class="axis-label">ep 37</text><text x="704.0" y="246" text-anchor="middle" class="axis-label">ep 49</text>
+</svg>
+    </div>
+  </div>
+</section>
+
+<section id="eval">
+  <div class="wrap">
+    <div class="eyebrow">Evaluation</div>
+    <h2>Where it's faithful, where it invents</h2>
+    <p class="intro">Real plate on the left, generated image on the right, from the exact same caption the model trained on.</p>
+
+    <figure class="compare-figure">
+      <img src="assets/eval/001_compare.jpg" alt="Comparison for plate 1, Circogonia, Phaeodaria">
+      <figcaption><span class="label">Tafel 1 — Circogonia, Phaeodaria (radiolaria).</span> The generated version keeps Haeckel's multi-panel radial layout and fine linework, but drifts toward a tentacled, medusa-like composition rather than Phaeodaria's spiky mineral skeletons. At 50 epochs, the adapter has learned the <em>genre</em> — plate layout, ink style — before it's learned to differentiate composition by taxonomic order. Expected at this stage on a 100-image, ~90-order dataset.</figcaption>
+    </figure>
+
+    <figure class="compare-figure">
+      <img src="assets/eval/051_compare.jpg" alt="Comparison for plate 51, Collosphaera, Polycyttaria">
+      <figcaption><span class="label">Tafel 51 — Collosphaera, Polycyttaria.</span> Same pattern: strong stylistic fidelity, weaker structural fidelity to this specific specimen.</figcaption>
+    </figure>
+
+    <div class="callout">
+      Read honestly: this is the eval script doing its job, not a disappointing result being
+      hidden. A longer run is the direct next step to see whether order-specific structure
+      resolves with more training or needs a different approach (more steps, adjusted learning
+      rate, or richer captions).
+    </div>
+
+    <h3 style="font-family: var(--sans); font-size: 1.1rem; color: var(--ink); margin-top: 2.5rem;">Novel recombinations</h3>
+    <p class="intro" style="margin-top: 0.4rem;">Prompts that don't exist in the training set — a genus invented within a known order, or two orders blended. No ground truth to compare against; the question is plausibility, not accuracy.</p>
+    <div class="novel-grid">
+      <figure><img src="assets/eval/novel/00.jpg" alt="Novel generation 1"><figcaption>discomedusae, "aurelia nova"</figcaption></figure>
+      <figure><img src="assets/eval/novel/01.jpg" alt="Novel generation 2"><figcaption>siphonophorae, "newly discovered deep-sea species"</figcaption></figure>
+      <figure><img src="assets/eval/novel/02.jpg" alt="Novel generation 3"><figcaption>radiolaria, "larger colonial species"</figcaption></figure>
+      <figure><img src="assets/eval/novel/03.jpg" alt="Novel generation 4"><figcaption>hexacoralla × radiolaria hybrid</figcaption></figure>
+      <figure><img src="assets/eval/novel/04.jpg" alt="Novel generation 5"><figcaption>ophiodea × siphonophorae hybrid</figcaption></figure>
+      <figure><img src="assets/eval/novel/05.jpg" alt="Novel generation 6"><figcaption>calcispongiae, "undiscovered species"</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <div class="eyebrow">Where this stands</div>
+    <h2>Status &amp; next steps</h2>
+    <div class="status-grid">
+      <div>
+        <h3>Done</h3>
+        <ul>
+          <li>Scrape, dedup, caption — fully reproducible from scratch</li>
+          <li>1,102-figure documentation from Haeckel's own explanatory text</li>
+          <li>LoRA training script, verified end-to-end on the real GPU</li>
+          <li>50-epoch training probe — style convergence confirmed</li>
+          <li>Evaluation script with faithfulness + novel prompt sets</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Not started</h3>
+        <ul>
+          <li>A longer training run to actually converge (150–300+ more epochs)</li>
+          <li>Full evaluation report against a converged checkpoint</li>
+          <li>Companion project: <em>Haeckel's Mistakes</em> — comparing this adapter against one trained on Haeckel's earlier 1887 Challenger Report drawings, to isolate the idealization between the two</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Code: MIT license. Training data (Haeckel's plates, 1899–1904) is public domain.</p>
+    <p><a href="https://github.com/hulashc/haeckel-lora">github.com/hulashc/haeckel-lora</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

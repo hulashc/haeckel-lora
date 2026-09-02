@@ -1,8 +1,11 @@
 # Haeckel LoRA: Generative Diffusion on *Kunstformen der Natur*
 
-> **Status: data pipeline done, no training run yet.** Scraping, dedup, and captioning are
-> complete and reproducible from scratch via the scripts below. Training and eval are not
-> written yet. This README describes the plan for those — not a result.
+> **Status: data pipeline done, training script written and verified, no real training run yet.**
+> Scraping, dedup, and captioning are complete and reproducible from scratch via the scripts
+> below. `scripts/train_lora.py` exists and has been verified end-to-end on the target GPU (loss
+> computed, checkpoint saved, validation sample generated) but hasn't been run as a real,
+> multi-epoch training job yet — so there's no trained adapter to point to. Eval script is not
+> written yet.
 
 ## Progress
 
@@ -30,7 +33,13 @@
       honestly-documented gaps rather than invented content: plate 85's explanatory text is
       confirmed absent from the scan (empty `figures` list, stated why in its `taxonomy` field);
       plates 63 and 90 are missing their first 1-3 figures to scan damage.
-- [ ] **Train** — rank-16 LoRA on SD1.5's UNet cross-attention layers.
+- [x] **Train (script)** — `scripts/train_lora.py`: rank-16 LoRA (via `peft`) on SD1.5's UNet
+      cross-attention layers (`to_q`/`to_k`/`to_v`/`to_out.0`), designed and verified against the
+      project's real 6GB VRAM ceiling (bf16 autocast, gradient checkpointing, batch size 1 +
+      gradient accumulation, frozen fp16 VAE/text-encoder). Verified with a real 2-step run on the
+      target GPU. Not yet run as an actual multi-epoch training job — no trained adapter exists.
+- [ ] **Train (run)** — pick an epoch count / stopping point from the loss curve and produce an
+      actual checkpoint in `outputs/checkpoints/`.
 - [ ] **Eval** — fixed prompt set sampled against training plates.
 
 A LoRA fine-tune of Stable Diffusion 1.5 on Ernst Haeckel's *Kunstformen der Natur* (1899-1904),
