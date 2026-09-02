@@ -26,8 +26,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import html
+import json
 from pathlib import Path
 
 import torch
@@ -38,7 +38,7 @@ from diffusers import DDIMScheduler, StableDiffusionPipeline
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHECKPOINT_DIR = REPO_ROOT / "outputs" / "checkpoints" / "final"
 DEFAULT_PLATES_DIR = REPO_ROOT / "data" / "raw" / "plates"
-DEFAULT_INDEX_CSV = REPO_ROOT / "data" / "processed" / "plate_index.csv"
+DEFAULT_CAPTIONS_JSONL = REPO_ROOT / "data" / "processed" / "captions.jsonl"
 DEFAULT_EVAL_DIR = REPO_ROOT / "outputs" / "eval"
 
 DEFAULT_PRETRAINED_MODEL = "stable-diffusion-v1-5/stable-diffusion-v1-5"
@@ -57,14 +57,13 @@ NOVEL_PROMPTS = [
 ]
 
 
-def build_caption(order: str, latin_name: str) -> str:
-    # Must match scripts/build_captions.py's format exactly -- this is what the model trained on.
-    return f"{TRIGGER}, {order.lower()}, {latin_name.lower()}, natural history lithograph illustration"
-
-
-def load_faithfulness_set(index_csv: Path, n: int):
-    with open(index_csv, encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+def load_faithfulness_set(captions_jsonl: Path, n: int):
+    # Read the real captions actually written to training data, rather than recomputing them --
+    # build_captions.py's caption logic went from a one-line f-string to a whole token-budget-
+    # fitting algorithm; a second hand-duplicated copy here would silently drift the moment that
+    # logic changes again, comparing generations against prompts the model never actually trained on.
+    with open(captions_jsonl, encoding="utf-8") as f:
+        rows = sorted((json.loads(line) for line in f), key=lambda r: r["plate"])
     if n >= len(rows):
         sampled = rows
     else:
@@ -75,7 +74,7 @@ def load_faithfulness_set(index_csv: Path, n: int):
     return [
         {
             "plate": row["plate"],
-            "caption": build_caption(row["order"], row["latin_name"]),
+            "caption": row["caption"],
             "latin_name": row["latin_name"],
             "order": row["order"],
         }
@@ -148,7 +147,7 @@ def parse_args():
     p.add_argument("--checkpoint_dir", type=Path, default=DEFAULT_CHECKPOINT_DIR)
     p.add_argument("--pretrained_model", type=str, default=DEFAULT_PRETRAINED_MODEL)
     p.add_argument("--plates_dir", type=Path, default=DEFAULT_PLATES_DIR)
-    p.add_argument("--index_csv", type=Path, default=DEFAULT_INDEX_CSV)
+    p.add_argument("--captions_jsonl", type=Path, default=DEFAULT_CAPTIONS_JSONL)
     p.add_argument("--eval_dir", type=Path, default=DEFAULT_EVAL_DIR)
     p.add_argument("--num_faithfulness", type=int, default=12)
     p.add_argument("--resolution", type=int, default=512)
@@ -177,7 +176,7 @@ def main():
     print(f"loading {args.pretrained_model} + LoRA from {args.checkpoint_dir}")
     pipeline = load_pipeline(args.pretrained_model, args.checkpoint_dir, device)
 
-    faithfulness_rows = load_faithfulness_set(args.index_csv, args.num_faithfulness)
+    faithfulness_rows = load_faithfulness_set(args.captions_jsonl, args.num_faithfulness)
     print(f"faithfulness set: {len(faithfulness_rows)} plates")
 
     for i, row in enumerate(faithfulness_rows):

@@ -1,13 +1,15 @@
-"""Train a rank-16 LoRA adapter on Stable Diffusion 1.5's UNet cross-attention layers,
-using data/processed/dataset/ (image + .txt caption pairs from build_captions.py).
+"""Train a rank-16 LoRA adapter on Stable Diffusion 1.5's UNet cross-attention layers (and,
+optionally, CLIP's text encoder), using data/processed/dataset/ (image + .txt caption pairs
+from build_captions.py).
 
 Designed around one hard constraint: a 6GB VRAM GPU (RTX 3060). That shapes every choice
 below, not as an afterthought:
 
   - 512x512 resolution (SD1.5's native res -- no reason to go higher and every reason not to)
-  - LoRA only: VAE and text encoder are frozen and cast to fp16 permanently (they're never
-    trained, so there's no reason to keep fp32 master weights around). Only the UNet's LoRA
-    adapter weights are trainable.
+  - LoRA only: VAE is always frozen and cast to fp16 permanently (never trained, so there's no
+    reason to keep fp32 master weights around). The text encoder is frozen+fp16 the same way
+    *unless* --train_text_encoder is passed, in which case it gets its own small LoRA adapter
+    (see below).
   - The trainable UNet forward pass runs under torch.autocast (bf16 by default -- the 3060 is
     Ampere, which has native bf16 tensor core support, so there's no GradScaler dance needed;
     fp16 is available as a fallback via --mixed_precision for older/other GPUs).
@@ -25,9 +27,17 @@ gradients + AdamW state must be fp32-precise; the *frozen* 96% of the UNet doesn
 gradients at all, so only the tiny LoRA adapter tensors carry optimizer state), plus a fp16
 VAE/text encoder (~350MB) and fp16 activations under gradient checkpointing.
 
+--train_text_encoder: off by default, but the recommended setting once captions carry real
+descriptive content (see build_captions.py) rather than bare taxonomic tags. With the text
+encoder frozen, the model can only ever lean on however well CLIP already represents words
+like "icosahedron" or "feathered rays" -- training a small LoRA on it too lets the text side
+adapt to this specific vocabulary as well, not just the image side. Cost is small: the text
+encoder needs fp32 master weights instead of permanent fp16 (~+250MB), and its own tiny adapter
+adds negligible params/activations next to the UNet's.
+
 Usage:
     python scripts/train_lora.py
-    python scripts/train_lora.py --num_train_epochs 200 --validation_prompt "haeckel_kunstformen, discomedusae, a new medusa species, natural history lithograph illustration"
+    python scripts/train_lora.py --train_text_encoder --num_train_epochs 200 --validation_prompt "haeckel_kunstformen, discomedusae, a new medusa species, natural history lithograph illustration"
     python scripts/train_lora.py --mixed_precision fp16   # if bf16 misbehaves on your setup
     python scripts/train_lora.py --resume_from outputs/checkpoints/step-1500
 
@@ -66,6 +76,7 @@ DEFAULT_SAMPLE_DIR = REPO_ROOT / "outputs" / "samples"
 DEFAULT_PRETRAINED_MODEL = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
 LORA_TARGET_MODULES = ["to_q", "to_k", "to_v", "to_out.0"]
+TEXT_ENCODER_LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "out_proj"]
 
 
 class HaeckelPlateDataset(Dataset):
@@ -136,12 +147,18 @@ def collate_fn(batch):
     return {"pixel_values": pixel_values, "input_ids": input_ids}
 
 
-def save_lora_checkpoint(unet, save_dir: Path):
+def save_lora_checkpoint(unet, save_dir: Path, text_encoder=None):
     save_dir.mkdir(parents=True, exist_ok=True)
-    lora_state_dict = convert_state_dict_to_diffusers(get_peft_model_state_dict(unet))
+    unet_lora_layers = convert_state_dict_to_diffusers(get_peft_model_state_dict(unet))
+    text_encoder_lora_layers = (
+        convert_state_dict_to_diffusers(get_peft_model_state_dict(text_encoder))
+        if text_encoder is not None
+        else None
+    )
     StableDiffusionPipeline.save_lora_weights(
         save_directory=str(save_dir),
-        unet_lora_layers=lora_state_dict,
+        unet_lora_layers=unet_lora_layers,
+        text_encoder_lora_layers=text_encoder_lora_layers,
         safe_serialization=True,
     )
 
@@ -167,12 +184,14 @@ def run_validation(args, unet, vae, text_encoder, tokenizer, device, weight_dtyp
     pipeline.set_progress_bar_config(disable=True)
 
     unet.eval()
+    if args.train_text_encoder:
+        text_encoder.eval()
     generator = torch.Generator(device=device).manual_seed(args.seed)
     autocast_enabled = args.mixed_precision != "no"
     try:
-        # Same reason as the training loop: unet's base weights stay fp32 (only the LoRA
-        # adapter is trainable), so the forward pass needs autocast to bridge against the
-        # permanently-fp16 vae/text_encoder -- without it this is a Half/Float dtype mismatch.
+        # Same reason as the training loop: unet's (and, if trained, text_encoder's) base
+        # weights stay fp32, so the forward pass needs autocast to bridge against the
+        # permanently-fp16 vae -- without it this is a Half/Float dtype mismatch.
         with torch.autocast(device_type="cuda", dtype=weight_dtype, enabled=autocast_enabled):
             images = pipeline(
                 args.validation_prompt,
@@ -183,6 +202,8 @@ def run_validation(args, unet, vae, text_encoder, tokenizer, device, weight_dtyp
             ).images
     finally:
         unet.train()
+        if args.train_text_encoder:
+            text_encoder.train()
 
     args.sample_dir.mkdir(parents=True, exist_ok=True)
     for i, image in enumerate(images):
@@ -205,6 +226,8 @@ def parse_args():
     p.add_argument("--rank", type=int, default=16)
     p.add_argument("--lora_alpha", type=int, default=None, help="defaults to --rank")
     p.add_argument("--caption_dropout_prob", type=float, default=0.1)
+    p.add_argument("--train_text_encoder", action="store_true",
+                    help="also train a LoRA adapter on CLIP's text encoder, not just the UNet")
 
     p.add_argument("--train_batch_size", type=int, default=1)
     p.add_argument("--gradient_accumulation_steps", type=int, default=4)
@@ -251,14 +274,21 @@ def main():
     vae = AutoencoderKL.from_pretrained(args.pretrained_model, subfolder="vae")
     unet = UNet2DConditionModel.from_pretrained(args.pretrained_model, subfolder="unet")
 
-    # Frozen, never trained -> cast to fp16 permanently and drop to eval. No reason to keep
-    # fp32 master copies of weights that never get an optimizer step.
-    text_encoder.requires_grad_(False)
+    # VAE: frozen, never trained -> cast to fp16 permanently and drop to eval. No reason to
+    # keep fp32 master copies of weights that never get an optimizer step.
     vae.requires_grad_(False)
-    text_encoder.to(device, dtype=torch.float16)
     vae.to(device, dtype=torch.float16)
-    text_encoder.eval()
     vae.eval()
+
+    # Text encoder: frozen+fp16 the same way as the VAE, UNLESS --train_text_encoder, in which
+    # case it needs fp32 master weights to carry its own trainable LoRA adapter (same reasoning
+    # as the UNet below).
+    text_encoder.requires_grad_(False)
+    if args.train_text_encoder:
+        text_encoder.to(device, dtype=torch.float32)
+    else:
+        text_encoder.to(device, dtype=torch.float16)
+        text_encoder.eval()
 
     # UNet: base weights frozen too, but stays fp32 on device -- LoRA forward/backward for the
     # trainable adapter runs under autocast (see the training loop), and autocast needs an
@@ -268,9 +298,13 @@ def main():
 
     if args.resume_from is not None:
         # load_lora_adapter injects the adapter (reading rank/alpha off the saved weights)
-        # and loads its values in one call -- don't call add_adapter first, it would double-inject.
-        print(f"resuming adapter weights from {args.resume_from}")
-        unet.load_lora_adapter(str(args.resume_from), adapter_name="default")
+        # and loads its values in one call -- don't call add_adapter first, it would
+        # double-inject. use_safetensors=True + prefix="unet" are both required: checkpoints
+        # are saved safetensors-only (no .bin), and the default prefix ("transformer") doesn't
+        # match the "unet."-prefixed keys diffusers writes, which otherwise fails silently
+        # (loads zero keys, no error) rather than crashing loudly.
+        print(f"resuming UNet adapter weights from {args.resume_from}")
+        unet.load_lora_adapter(str(args.resume_from), adapter_name="default", use_safetensors=True, prefix="unet")
     else:
         lora_config = LoraConfig(
             r=args.rank,
@@ -283,9 +317,43 @@ def main():
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
 
+    if args.train_text_encoder:
+        te_lora_config = LoraConfig(
+            r=args.rank,
+            lora_alpha=args.lora_alpha,
+            init_lora_weights="gaussian",
+            target_modules=TEXT_ENCODER_LORA_TARGET_MODULES,
+        )
+        if args.resume_from is not None:
+            from safetensors.torch import load_file
+
+            full_sd = load_file(str(args.resume_from / "pytorch_lora_weights.safetensors"))
+            if any(k.startswith("text_encoder.") for k in full_sd):
+                print(f"resuming text encoder adapter weights from {args.resume_from}")
+                StableDiffusionPipeline.load_lora_into_text_encoder(
+                    full_sd, network_alphas=None, text_encoder=text_encoder,
+                    prefix="text_encoder", adapter_name="default",
+                )
+            else:
+                print(
+                    "warning: --resume_from checkpoint has no text_encoder LoRA weights "
+                    "(it was trained without --train_text_encoder) -- starting the text "
+                    "encoder adapter fresh instead"
+                )
+                text_encoder.add_adapter(te_lora_config)
+        else:
+            text_encoder.add_adapter(te_lora_config)
+
+        if args.gradient_checkpointing:
+            text_encoder.gradient_checkpointing_enable()
+        text_encoder.train()
+
     lora_layers = [p for p in unet.parameters() if p.requires_grad]
+    if args.train_text_encoder:
+        lora_layers += [p for p in text_encoder.parameters() if p.requires_grad]
     n_params = sum(p.numel() for p in lora_layers)
-    print(f"training {len(lora_layers)} LoRA tensors, {n_params:,} trainable params")
+    print(f"training {len(lora_layers)} LoRA tensors, {n_params:,} trainable params"
+          f"{' (unet + text encoder)' if args.train_text_encoder else ' (unet only)'}")
 
     # --- data ---
     dataset = HaeckelPlateDataset(args.dataset_dir, tokenizer, args.resolution, args.caption_dropout_prob)
@@ -349,7 +417,6 @@ def main():
             with torch.no_grad():
                 latents = vae.encode(pixel_values).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
-                encoder_hidden_states = text_encoder(input_ids)[0]
 
             noise = torch.randn_like(latents)
             bsz = latents.shape[0]
@@ -359,6 +426,13 @@ def main():
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
             with torch.autocast(device_type="cuda", dtype=weight_dtype, enabled=autocast_enabled):
+                if args.train_text_encoder:
+                    # Needs grad -> inside autocast, not torch.no_grad(), so the text encoder's
+                    # own LoRA adapter actually gets a gradient signal from this forward pass.
+                    encoder_hidden_states = text_encoder(input_ids)[0]
+                else:
+                    with torch.no_grad():
+                        encoder_hidden_states = text_encoder(input_ids)[0]
                 model_pred = unet(
                     noisy_latents, timesteps, encoder_hidden_states.to(weight_dtype)
                 ).sample
@@ -388,7 +462,7 @@ def main():
 
             if global_step % args.checkpointing_steps == 0:
                 ckpt_dir = args.output_dir / f"step-{global_step}"
-                save_lora_checkpoint(unet, ckpt_dir)
+                save_lora_checkpoint(unet, ckpt_dir, text_encoder if args.train_text_encoder else None)
                 progress.write(f"saved checkpoint to {ckpt_dir}")
 
             if global_step >= args.max_train_steps:
@@ -404,7 +478,7 @@ def main():
     loss_log.close()
 
     final_dir = args.output_dir / "final"
-    save_lora_checkpoint(unet, final_dir)
+    save_lora_checkpoint(unet, final_dir, text_encoder if args.train_text_encoder else None)
     print(f"done. final LoRA weights at {final_dir}")
 
 
