@@ -3,13 +3,24 @@ data/processed/plate_details.json.
 
 For each of the 100 numbered plates, writes an image + a same-named .txt caption file into
 data/processed/dataset/ (the standard layout diffusers/kohya-style LoRA trainers expect: one
-caption file per image, same basename). Caption format is a trigger phrase, order/genus tags,
-one real descriptive clause about the specimen, and a suffix, e.g.:
+caption file per image, same basename). Caption format is a trigger phrase, a background-color
+tag, order/genus tags, one real descriptive clause about the specimen, and a suffix, e.g.:
 
-    haeckel_kunstformen, phaeodaria, circogonia, Shell 0.7mm diameter shaped like a regular
-    icosahedron with 20 triangular faces and 12 corners each bearing a hollow spiny radial
-    spine, its central face pierced by a six-toothed mouth opening., natural history
-    lithograph illustration
+    haeckel_kunstformen, black background, phaeodaria, circogonia, Shell 0.7mm diameter shaped
+    like a regular icosahedron with 20 triangular faces and 12 corners each bearing a hollow
+    spiny radial spine, its central face pierced by a six-toothed mouth opening., natural
+    history lithograph illustration
+
+The background-color tag ("black background" or "pale background") is measured directly from
+each plate image -- median grayscale luminance of a central crop (12%-88% of width/height, to
+exclude the cream page margin and printed caption text that surrounds every plate regardless of
+its own background) -- not guessed or LLM-generated, per this project's zero-tolerance policy on
+fabricated caption content. Across all 100 plates the measured medians cluster into two groups
+with a wide, clean gap between them (roughly <=160 vs. >=180 out of 255), so a single threshold
+at 170 reliably separates them; see `detect_background` below. Added because an eval run against
+a real checkpoint (2026-09-02, `outputs/eval/step-3000/`) showed the model frequently generating
+the wrong background color for a given plate's real subject, and the pre-existing captions never
+mentioned background color at all -- there was no textual signal for the model to learn it from.
 
 The order/genus tags alone (the original caption format, still used as the prefix here) are
 rare Latin/German taxonomic words that SD1.5's frozen CLIP text encoder -- trained on ordinary
@@ -48,8 +59,10 @@ import csv
 import json
 import re
 import shutil
+import statistics
 from pathlib import Path
 
+from PIL import Image
 from transformers import CLIPTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -62,6 +75,24 @@ CAPTIONS_JSONL = REPO_ROOT / "data" / "processed" / "captions.jsonl"
 TRIGGER = "haeckel_kunstformen"
 SUFFIX = "natural history lithograph illustration"
 MAX_TOKENS = 77
+
+# Measured from all 100 plates (2026-09-02): central-crop median luminance clusters tightly
+# below 160 (black backgrounds) or above 180 (pale/cream backgrounds), with a clean gap between
+# -- no plate lands near this threshold, so it isn't a close call in practice.
+BACKGROUND_LUMINANCE_THRESHOLD = 170
+CENTRAL_CROP_FRACTION = 0.12  # exclude this fraction of width/height from each edge
+
+
+def detect_background(image_path: Path) -> str:
+    """Measures each plate's own illustration background (not the page margin around it) by
+    taking the median grayscale luminance of a central crop, and classifies it as black or pale.
+    Measured directly from pixels, never guessed -- see module docstring."""
+    img = Image.open(image_path).convert("L")
+    w, h = img.size
+    x0, x1 = int(w * CENTRAL_CROP_FRACTION), int(w * (1 - CENTRAL_CROP_FRACTION))
+    y0, y1 = int(h * CENTRAL_CROP_FRACTION), int(h * (1 - CENTRAL_CROP_FRACTION))
+    median_luminance = statistics.median(img.crop((x0, y0, x1, y1)).getdata())
+    return "black background" if median_luminance <= BACKGROUND_LUMINANCE_THRESHOLD else "pale background"
 
 # Must match the model scripts/train_lora.py and scripts/eval_lora.py actually load -- the
 # tokenizer's vocabulary/behavior is what the 77-token budget is measured against.
@@ -135,8 +166,10 @@ def fit_caption(tokenizer, prefix: str, note: str) -> str:
     return _candidate(prefix, None)
 
 
-def build_caption(tokenizer, order: str, genus: str, figures: list[dict]) -> tuple[str, str | None, int]:
-    prefix = f"{TRIGGER}, {order.lower()}, {genus.lower()}"
+def build_caption(
+    tokenizer, order: str, genus: str, background: str, figures: list[dict]
+) -> tuple[str, str | None, int]:
+    prefix = f"{TRIGGER}, {background}, {order.lower()}, {genus.lower()}"
     note, figure_number = select_note(genus, figures)
     caption = _candidate(prefix, None) if note is None else fit_caption(tokenizer, prefix, note)
     return caption, figure_number, _token_len(tokenizer, caption)
@@ -176,7 +209,10 @@ def main() -> int:
 
             figures = details_by_plate.get(plate, {}).get("figures", [])
             genus = row["latin_name"]
-            caption, figure_number, token_count = build_caption(tokenizer, row["order"], genus, figures)
+            background = detect_background(src)
+            caption, figure_number, token_count = build_caption(
+                tokenizer, row["order"], genus, background, figures
+            )
 
             if not figures:
                 no_figures_fallback += 1
@@ -185,7 +221,8 @@ def main() -> int:
 
             note_full, _ = select_note(genus, figures)
             if note_full is not None:
-                full_len = _token_len(tokenizer, _candidate(f"{TRIGGER}, {row['order'].lower()}, {genus.lower()}", note_full))
+                full_prefix = f"{TRIGGER}, {background}, {row['order'].lower()}, {genus.lower()}"
+                full_len = _token_len(tokenizer, _candidate(full_prefix, note_full))
                 if full_len > MAX_TOKENS:
                     truncated += 1
 
@@ -200,6 +237,7 @@ def main() -> int:
                 "caption": caption,
                 "latin_name": genus,
                 "order": row["order"],
+                "background": background,
                 "german_name": row["german_name"],
                 "figure_number": figure_number,
                 "token_count": token_count,

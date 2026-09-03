@@ -216,7 +216,7 @@
         can't — and whether it can dream up specimens Haeckel never drew, in a style he'd
         recognize as his own.
       </p>
-      <div class="status-badge"><span class="dot"></span> Research in progress — data pipeline done, first training probe complete, longer run next</div>
+      <div class="status-badge"><span class="dot"></span> Research in progress — extended training complete, background-color caption fix applied, genus-specific structural fidelity still open</div>
       <div class="links">
         <a href="https://github.com/hulashc/haeckel-lora">GitHub repo →</a>
         <a href="https://en.wikipedia.org/wiki/Kunstformen_der_Natur">About Kunstformen der Natur →</a>
@@ -234,11 +234,12 @@
     <h2>One hundred plates, one visual signature</h2>
     <p class="intro">
       <em>Kunstformen der Natur</em> is public domain, ~100 plates, and every plate follows the
-      same recipe: a single biological specimen, often radially symmetric, rendered as a
-      lithograph on a warm cream background with fine line work and saturated earth-tone ink.
-      That signature is strong enough that an output either looks like Haeckel or obviously
-      doesn't — which makes a model's progress genuinely inspectable rather than a
-      vibes-based "looks cool to me" call.
+      same recipe: one or more biological specimens, often radially symmetric, arranged in a
+      multi-panel grid and rendered as a lithograph with fine line work and saturated ink — on
+      either a pale cream or a stark black background, split roughly evenly across the set (52
+      black, 48 pale, measured directly from the scans, not eyeballed). That signature is strong
+      enough that an output either looks like Haeckel or obviously doesn't — which makes a
+      model's progress genuinely inspectable rather than a vibes-based "looks cool to me" call.
     </p>
     <p class="intro">
       Haeckel was also drawing things — deep-sea radiolaria, siphonophores — that nobody had seen
@@ -292,8 +293,8 @@
       <div class="step done">
         <div class="marker">✓</div>
         <div>
-          <h3>First training run — 50-epoch probe</h3>
-          <p>1,250 steps on the full 100-image dataset, to validate the config before committing to a long run. Results below.</p>
+          <h3>Training run — 124 epochs, 3,100 steps</h3>
+          <p>Started as a 50-epoch probe, kept running well past that point. Loss dropped for the first ~50 epochs, then plateaued — the extra 74 epochs bought almost nothing further on the loss curve. Results below.</p>
         </div>
       </div>
       <div class="step done">
@@ -303,11 +304,18 @@
           <p>Fixed, seeded prompt sets — faithfulness (real captions vs. generated, side-by-side) and novel recombinations — so results are comparable across checkpoints.</p>
         </div>
       </div>
+      <div class="step done">
+        <div class="marker">✓</div>
+        <div>
+          <h3>Background-color caption fix</h3>
+          <p>The full eval surfaced a real bug: captions never mentioned background color, so the model guessed. Fixed by measuring each plate's actual background from its pixels and adding it to the caption — see "Chasing a bias" below for the honest result.</p>
+        </div>
+      </div>
       <div class="step pending">
         <div class="marker">○</div>
         <div>
-          <h3>Longer training run</h3>
-          <p>The probe validated the setup; it did not finish converging. This is the current next step.</p>
+          <h3>Genus-specific structural fidelity</h3>
+          <p>Style and layout converge well before order-specific anatomy does — a jellyfish prompt can still render as an abstract, non-jellyfish shape. Open problem, not yet attempted.</p>
         </div>
       </div>
     </div>
@@ -318,7 +326,7 @@
   <div class="wrap">
     <div class="eyebrow">The source material</div>
     <h2>A sample of the 100 plates</h2>
-    <p class="intro">Haeckel drew far beyond radiolaria and jellyfish — bats, hummingbirds, orchids, antelope. The dataset's breadth is part of what makes the training probe below interesting: 100 images spread across ~90 distinct taxonomic orders is a hard generalization problem.</p>
+    <p class="intro">Haeckel drew far beyond radiolaria and jellyfish — bats, hummingbirds, orchids, antelope. The dataset's breadth is part of what makes the training run below interesting: 100 images spread across ~90 distinct taxonomic orders is a hard generalization problem.</p>
     <div class="gallery-grid">
       <figure><img src="assets/gallery/008.jpg" alt="Tafel 8, Desmonema, Discomedusae"><figcaption>Desmonema<span class="order">Discomedusae — jellyfish</span></figcaption></figure>
       <figure><img src="assets/gallery/001.jpg" alt="Tafel 1, Circogonia, Phaeodaria"><figcaption>Circogonia<span class="order">Phaeodaria — radiolaria</span></figcaption></figure>
@@ -334,30 +342,53 @@
 
 <section id="training">
   <div class="wrap">
-    <div class="eyebrow">50-epoch probe</div>
-    <h2>Watching the style emerge</h2>
-    <p class="intro">Same prompt, same seed, sampled at each checkpoint through training. The point of this probe wasn't a finished adapter — it was checking that the config actually converges before committing hours to a longer run.</p>
+    <div class="eyebrow">124-epoch run</div>
+    <h2>Watching the style emerge, then plateau</h2>
+    <p class="intro">Same prompt, same seed, sampled at checkpoints across the full run. Style and layout converge early; the honest finding of this run is that it plateaus, not that it keeps improving forever.</p>
     <div class="progress-strip">
-      <figure><img src="assets/progress/step-000250.jpg" alt="Sample at step 250"><figcaption>step 250</figcaption></figure>
-      <figure><img src="assets/progress/step-000500.jpg" alt="Sample at step 500"><figcaption>step 500</figcaption></figure>
       <figure><img src="assets/progress/step-000750.jpg" alt="Sample at step 750"><figcaption>step 750</figcaption></figure>
-      <figure><img src="assets/progress/step-001000.jpg" alt="Sample at step 1000"><figcaption>step 1000</figcaption></figure>
-      <figure><img src="assets/progress/step-001250.jpg" alt="Sample at step 1250"><figcaption>step 1250</figcaption></figure>
+      <figure><img src="assets/progress/step-001500.jpg" alt="Sample at step 1500"><figcaption>step 1500</figcaption></figure>
+      <figure><img src="assets/progress/step-002250.jpg" alt="Sample at step 2250"><figcaption>step 2250</figcaption></figure>
+      <figure><img src="assets/progress/step-003000.jpg" alt="Sample at step 3000"><figcaption>step 3000</figcaption></figure>
     </div>
     <div class="chart-card">
       <h3>Training loss, per-epoch mean</h3>
       <p style="color: var(--ink-dim); font-size: 0.88rem; margin-top: 0;">
-        <span class="stat">0.186 → 0.131</span> over 50 epochs. Diffusion MSE loss is inherently
-        noisy per-timestep — this is the honest per-epoch curve, not smoothed to look cleaner
-        than it is.
+        <span class="stat">0.188 → ~0.15, flat from ~epoch 50 on</span> across all 124 epochs.
+        Diffusion MSE loss is inherently noisy per-timestep — this is the honest per-epoch curve,
+        not smoothed to look cleaner than it is. It drops for the first third of the run, then
+        plateaus for the remaining two-thirds — more epochs on this same 100-image dataset
+        stopped buying anything.
       </p>
-      <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" class="loss-chart" role="img" aria-label="Training loss per epoch, 0 to 49">
-<line x1="44" y1="16.0" x2="704" y2="16.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="20.0" text-anchor="end" class="axis-label">0.214</text><line x1="44" y1="69.0" x2="704" y2="69.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="73.0" text-anchor="end" class="axis-label">0.187</text><line x1="44" y1="122.0" x2="704" y2="122.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="126.0" text-anchor="end" class="axis-label">0.160</text><line x1="44" y1="175.0" x2="704" y2="175.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="179.0" text-anchor="end" class="axis-label">0.133</text><line x1="44" y1="228.0" x2="704" y2="228.0" stroke="var(--grid)" stroke-width="1"/><text x="36" y="232.0" text-anchor="end" class="axis-label">0.106</text>
-<path d="M 44.0,70.3 L 57.5,76.6 L 70.9,130.5 L 84.4,154.5 L 97.9,155.4 L 111.3,204.8 L 124.8,135.1 L 138.3,108.3 L 151.8,210.3 L 165.2,186.4 L 178.7,64.4 L 192.2,125.1 L 205.6,167.5 L 219.1,118.5 L 232.6,121.1 L 246.0,122.8 L 259.5,154.7 L 273.0,159.7 L 286.4,82.9 L 299.9,126.9 L 313.4,137.1 L 326.9,101.8 L 340.3,139.6 L 353.8,119.5 L 367.3,165.1 L 380.7,192.9 L 394.2,90.1 L 407.7,99.8 L 421.1,165.6 L 434.6,177.4 L 448.1,33.7 L 461.6,188.7 L 475.0,125.0 L 488.5,163.6 L 502.0,160.3 L 515.4,185.1 L 528.9,145.2 L 542.4,147.9 L 555.8,198.1 L 569.3,94.3 L 582.8,124.4 L 596.2,156.5 L 609.7,205.7 L 623.2,191.1 L 636.7,150.1 L 650.1,159.0 L 663.6,189.5 L 677.1,106.5 L 690.5,125.4 L 704.0,179.6 L 704.0,228 L 44.0,228 Z" fill="var(--accent-fill)" stroke="none"/>
-<path d="M 44.0,70.3 L 57.5,76.6 L 70.9,130.5 L 84.4,154.5 L 97.9,155.4 L 111.3,204.8 L 124.8,135.1 L 138.3,108.3 L 151.8,210.3 L 165.2,186.4 L 178.7,64.4 L 192.2,125.1 L 205.6,167.5 L 219.1,118.5 L 232.6,121.1 L 246.0,122.8 L 259.5,154.7 L 273.0,159.7 L 286.4,82.9 L 299.9,126.9 L 313.4,137.1 L 326.9,101.8 L 340.3,139.6 L 353.8,119.5 L 367.3,165.1 L 380.7,192.9 L 394.2,90.1 L 407.7,99.8 L 421.1,165.6 L 434.6,177.4 L 448.1,33.7 L 461.6,188.7 L 475.0,125.0 L 488.5,163.6 L 502.0,160.3 L 515.4,185.1 L 528.9,145.2 L 542.4,147.9 L 555.8,198.1 L 569.3,94.3 L 582.8,124.4 L 596.2,156.5 L 609.7,205.7 L 623.2,191.1 L 636.7,150.1 L 650.1,159.0 L 663.6,189.5 L 677.1,106.5 L 690.5,125.4 L 704.0,179.6" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-<text x="44.0" y="246" text-anchor="middle" class="axis-label">ep 0</text><text x="205.6" y="246" text-anchor="middle" class="axis-label">ep 12</text><text x="380.7" y="246" text-anchor="middle" class="axis-label">ep 25</text><text x="542.4" y="246" text-anchor="middle" class="axis-label">ep 37</text><text x="704.0" y="246" text-anchor="middle" class="axis-label">ep 49</text>
+      <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" class="loss-chart" role="img" aria-label="Training loss per epoch, 0 to 123">
+<line x1="44" y1="16" x2="704" y2="16" stroke="var(--grid)" stroke-width="1"/><text x="36" y="20" text-anchor="end" class="axis-label">0.211</text><line x1="44" y1="69" x2="704" y2="69" stroke="var(--grid)" stroke-width="1"/><text x="36" y="73" text-anchor="end" class="axis-label">0.183</text><line x1="44" y1="122" x2="704" y2="122" stroke="var(--grid)" stroke-width="1"/><text x="36" y="126" text-anchor="end" class="axis-label">0.155</text><line x1="44" y1="175" x2="704" y2="175" stroke="var(--grid)" stroke-width="1"/><text x="36" y="179" text-anchor="end" class="axis-label">0.128</text><line x1="44" y1="228" x2="704" y2="228" stroke="var(--grid)" stroke-width="1"/><text x="36" y="232" text-anchor="end" class="axis-label">0.100</text>
+<path d="M 44.0,59.5 L 49.4,80.0 L 54.7,115.9 L 60.1,139.9 L 65.5,146.9 L 70.8,201.5 L 76.2,128.7 L 81.6,100.6 L 86.9,200.9 L 92.3,171.3 L 97.7,60.1 L 103.0,115.9 L 108.4,157.0 L 113.8,97.8 L 119.1,112.5 L 124.5,108.2 L 129.9,142.4 L 135.2,159.7 L 140.6,76.6 L 146.0,115.0 L 151.3,124.5 L 156.7,93.3 L 162.0,137.4 L 167.4,110.3 L 172.8,151.6 L 178.1,179.2 L 183.5,91.6 L 188.9,92.7 L 194.2,159.3 L 199.6,155.6 L 205.0,34.9 L 210.3,180.5 L 215.7,125.3 L 221.1,156.9 L 226.4,146.4 L 231.8,172.2 L 237.2,133.3 L 242.5,142.4 L 247.9,184.0 L 253.3,83.6 L 258.6,117.0 L 264.0,144.7 L 269.4,199.6 L 274.7,183.2 L 280.1,146.1 L 285.5,148.3 L 290.8,178.3 L 296.2,81.5 L 301.6,118.6 L 306.9,173.1 L 312.3,155.5 L 317.7,159.5 L 323.0,136.2 L 328.4,126.0 L 333.8,63.9 L 339.1,104.4 L 344.5,153.4 L 349.9,68.2 L 355.2,150.7 L 360.6,135.9 L 366.0,203.4 L 371.3,101.9 L 376.7,185.9 L 382.0,111.2 L 387.4,171.8 L 392.8,201.8 L 398.1,221.8 L 403.5,86.1 L 408.9,141.9 L 414.2,179.5 L 419.6,96.3 L 425.0,159.6 L 430.3,107.1 L 435.7,98.7 L 441.1,152.6 L 446.4,167.6 L 451.8,190.4 L 457.2,60.2 L 462.5,184.0 L 467.9,27.7 L 473.3,138.8 L 478.6,82.1 L 484.0,173.6 L 489.4,151.2 L 494.7,208.0 L 500.1,103.8 L 505.5,137.5 L 510.8,214.7 L 516.2,75.8 L 521.6,108.7 L 526.9,113.5 L 532.3,105.4 L 537.7,110.3 L 543.0,150.2 L 548.4,94.7 L 553.8,166.4 L 559.1,142.2 L 564.5,50.3 L 569.9,100.0 L 575.2,84.8 L 580.6,159.6 L 586.0,160.8 L 591.3,154.2 L 596.7,158.2 L 602.0,94.2 L 607.4,174.3 L 612.8,202.4 L 618.1,111.2 L 623.5,195.4 L 628.9,178.9 L 634.2,160.0 L 639.6,184.4 L 645.0,42.0 L 650.3,87.2 L 655.7,141.0 L 661.1,154.6 L 666.4,175.5 L 671.8,206.2 L 677.2,160.1 L 682.5,117.0 L 687.9,150.1 L 693.3,143.3 L 698.6,146.7 L 704.0,116.5 L 704.0,228 L 44.0,228 Z" fill="var(--accent-fill)" stroke="none"/>
+<path d="M 44.0,59.5 L 49.4,80.0 L 54.7,115.9 L 60.1,139.9 L 65.5,146.9 L 70.8,201.5 L 76.2,128.7 L 81.6,100.6 L 86.9,200.9 L 92.3,171.3 L 97.7,60.1 L 103.0,115.9 L 108.4,157.0 L 113.8,97.8 L 119.1,112.5 L 124.5,108.2 L 129.9,142.4 L 135.2,159.7 L 140.6,76.6 L 146.0,115.0 L 151.3,124.5 L 156.7,93.3 L 162.0,137.4 L 167.4,110.3 L 172.8,151.6 L 178.1,179.2 L 183.5,91.6 L 188.9,92.7 L 194.2,159.3 L 199.6,155.6 L 205.0,34.9 L 210.3,180.5 L 215.7,125.3 L 221.1,156.9 L 226.4,146.4 L 231.8,172.2 L 237.2,133.3 L 242.5,142.4 L 247.9,184.0 L 253.3,83.6 L 258.6,117.0 L 264.0,144.7 L 269.4,199.6 L 274.7,183.2 L 280.1,146.1 L 285.5,148.3 L 290.8,178.3 L 296.2,81.5 L 301.6,118.6 L 306.9,173.1 L 312.3,155.5 L 317.7,159.5 L 323.0,136.2 L 328.4,126.0 L 333.8,63.9 L 339.1,104.4 L 344.5,153.4 L 349.9,68.2 L 355.2,150.7 L 360.6,135.9 L 366.0,203.4 L 371.3,101.9 L 376.7,185.9 L 382.0,111.2 L 387.4,171.8 L 392.8,201.8 L 398.1,221.8 L 403.5,86.1 L 408.9,141.9 L 414.2,179.5 L 419.6,96.3 L 425.0,159.6 L 430.3,107.1 L 435.7,98.7 L 441.1,152.6 L 446.4,167.6 L 451.8,190.4 L 457.2,60.2 L 462.5,184.0 L 467.9,27.7 L 473.3,138.8 L 478.6,82.1 L 484.0,173.6 L 489.4,151.2 L 494.7,208.0 L 500.1,103.8 L 505.5,137.5 L 510.8,214.7 L 516.2,75.8 L 521.6,108.7 L 526.9,113.5 L 532.3,105.4 L 537.7,110.3 L 543.0,150.2 L 548.4,94.7 L 553.8,166.4 L 559.1,142.2 L 564.5,50.3 L 569.9,100.0 L 575.2,84.8 L 580.6,159.6 L 586.0,160.8 L 591.3,154.2 L 596.7,158.2 L 602.0,94.2 L 607.4,174.3 L 612.8,202.4 L 618.1,111.2 L 623.5,195.4 L 628.9,178.9 L 634.2,160.0 L 639.6,184.4 L 645.0,42.0 L 650.3,87.2 L 655.7,141.0 L 661.1,154.6 L 666.4,175.5 L 671.8,206.2 L 677.2,160.1 L 682.5,117.0 L 687.9,150.1 L 693.3,143.3 L 698.6,146.7 L 704.0,116.5" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="44.0" y="246" text-anchor="middle" class="axis-label">ep 0</text><text x="210.3" y="246" text-anchor="middle" class="axis-label">ep 31</text><text x="376.7" y="246" text-anchor="middle" class="axis-label">ep 62</text><text x="537.7" y="246" text-anchor="middle" class="axis-label">ep 92</text><text x="704.0" y="246" text-anchor="middle" class="axis-label">ep 123</text>
 </svg>
     </div>
+
+    <h3 style="font-family: var(--sans); font-size: 1.1rem; color: var(--ink); margin-top: 2.5rem;">Chasing a bias, and calling it</h3>
+    <p class="intro" style="margin-top: 0.4rem;">
+      The full eval (below) found the model frequently generated the wrong background color for a
+      given plate — and the root cause was simple: captions never mentioned background color at
+      all, so there was nothing to learn it from. Fixed that by measuring each plate's real
+      background directly from its pixels (median luminance of a central crop, not guessed) and
+      adding a <code>black background</code> / <code>pale background</code> tag to every caption.
+    </p>
+    <p class="intro" style="margin-top: 0.8rem;">
+      The fix worked on some plates immediately and not on others. A follow-up run that doubled
+      how often pale-background examples appeared in training, for 40 more epochs, didn't
+      change the aggregate result at all — one plate flipped from wrong to right, another flipped
+      from right to wrong, net zero. A handful of aquatic subjects (siphonophores, boxfish)
+      consistently render with a teal background regardless of the caption tag, which looks like
+      the model has learned "aquatic subject → teal" as a stronger association than the literal
+      instruction. Two rounds of "more epochs, same approach" produced no further gain, so this
+      is where it stands: real, partial, well-understood progress rather than a solved problem —
+      and for this project's actual goal (novel specimens, not a photocopier), background-color
+      drift reads as more of the same generative variety Haeckel's own plates already have, not
+      a defect to keep burning GPU hours on.
+    </p>
   </div>
 </section>
 
@@ -368,20 +399,27 @@
     <p class="intro">Real plate on the left, generated image on the right, from the exact same caption the model trained on.</p>
 
     <figure class="compare-figure">
-      <img src="assets/eval/001_compare.jpg" alt="Comparison for plate 1, Circogonia, Phaeodaria">
-      <figcaption><span class="label">Tafel 1 — Circogonia, Phaeodaria (radiolaria).</span> The generated version keeps Haeckel's multi-panel radial layout and fine linework, but drifts toward a tentacled, medusa-like composition rather than Phaeodaria's spiky mineral skeletons. At 50 epochs, the adapter has learned the <em>genre</em> — plate layout, ink style — before it's learned to differentiate composition by taxonomic order. Expected at this stage on a 100-image, ~90-order dataset.</figcaption>
+      <img src="assets/eval/084_compare.jpg" alt="Comparison for plate 84, Navicula, Diatomea">
+      <figcaption><span class="label">Tafel 84 — Navicula, Diatomea.</span> A genuine win: correct black background, correct multi-panel grid of geometric diatom shells, close enough to pass at a glance. Style, layout, and the background-color fix are all working together here.</figcaption>
     </figure>
 
     <figure class="compare-figure">
-      <img src="assets/eval/051_compare.jpg" alt="Comparison for plate 51, Collosphaera, Polycyttaria">
-      <figcaption><span class="label">Tafel 51 — Collosphaera, Polycyttaria.</span> Same pattern: strong stylistic fidelity, weaker structural fidelity to this specific specimen.</figcaption>
+      <img src="assets/eval/026_compare.jpg" alt="Comparison for plate 26, Carmaris, Trachomedusae">
+      <figcaption><span class="label">Tafel 26 — Carmaris, Trachomedusae (jellyfish).</span> The nuanced case: the background-color fix worked here — pale background, correctly — but the jellyfish itself rendered as an abstract, cage-like structure rather than anything jellyfish-shaped. Background color and genus-specific anatomy are separate problems, solved on separate timelines.</figcaption>
+    </figure>
+
+    <figure class="compare-figure">
+      <img src="assets/eval/042_compare.jpg" alt="Comparison for plate 42, Ostracion, Ostraciontes">
+      <figcaption><span class="label">Tafel 42 — Ostracion, Ostraciontes (boxfish).</span> The honest miss: caption says "pale background," output is teal, and two separate rounds of fine-tuning (including one that specifically doubled pale-example exposure) didn't move it. Aquatic subjects seem to have "teal" baked in stronger than the literal instruction.</figcaption>
     </figure>
 
     <div class="callout">
       Read honestly: this is the eval script doing its job, not a disappointing result being
-      hidden. A longer run is the direct next step to see whether order-specific structure
-      resolves with more training or needs a different approach (more steps, adjusted learning
-      rate, or richer captions).
+      hidden. Style and layout converge fast and hold up well; genus-specific anatomy and a
+      handful of stubborn background-color associations are the real remaining gaps, and more
+      epochs on the same 100-image dataset has stopped moving either one. Worth revisiting with a
+      different approach (caption structure, learning rate, or just more/different training data)
+      rather than more of the same.
     </div>
 
     <h3 style="font-family: var(--sans); font-size: 1.1rem; color: var(--ink); margin-top: 2.5rem;">Novel recombinations</h3>
@@ -408,15 +446,16 @@
           <li>Scrape, dedup, caption — fully reproducible from scratch</li>
           <li>1,102-figure documentation from Haeckel's own explanatory text</li>
           <li>LoRA training script, verified end-to-end on the real GPU</li>
-          <li>50-epoch training probe — style convergence confirmed</li>
-          <li>Evaluation script with faithfulness + novel prompt sets</li>
+          <li>124-epoch training run — loss plateaus around epoch 50, confirmed rather than assumed</li>
+          <li>Full evaluation report against real checkpoints (not a smoke test)</li>
+          <li>Background-color caption fix, traced to root cause and measured, not guessed</li>
         </ul>
       </div>
       <div>
-        <h3>Not started</h3>
+        <h3>Not started / accepted as-is</h3>
         <ul>
-          <li>A longer training run to actually converge (150–300+ more epochs)</li>
-          <li>Full evaluation report against a converged checkpoint</li>
+          <li>Genus-specific structural fidelity (e.g. a jellyfish prompt rendering as an abstract non-jellyfish shape) — a separate, harder problem than background color, still open</li>
+          <li>Further background-color chasing — two rounds of more-epochs produced no net gain; treated as an accepted, understood limitation rather than a target for more compute</li>
           <li>Companion project: <em>Haeckel's Mistakes</em> — comparing this adapter against one trained on Haeckel's earlier 1887 Challenger Report drawings, to isolate the idealization between the two</li>
         </ul>
       </div>

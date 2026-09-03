@@ -40,6 +40,7 @@ Usage:
     python scripts/train_lora.py --train_text_encoder --num_train_epochs 200 --validation_prompt "haeckel_kunstformen, discomedusae, a new medusa species, natural history lithograph illustration"
     python scripts/train_lora.py --mixed_precision fp16   # if bf16 misbehaves on your setup
     python scripts/train_lora.py --resume_from outputs/checkpoints/step-1500
+    python scripts/train_lora.py --resume_from outputs/checkpoints/bg-caption-run/final --oversample_pale 2
 
 See data/processed/README.md and README.md ("Plan" / "Inference") for the rest of the
 project's design rationale.
@@ -82,12 +83,20 @@ TEXT_ENCODER_LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "out_proj"]
 class HaeckelPlateDataset(Dataset):
     """Reads data/processed/dataset/*.txt + same-stem image pairs written by build_captions.py."""
 
-    def __init__(self, dataset_dir: Path, tokenizer: CLIPTokenizer, resolution: int, caption_dropout_prob: float):
+    def __init__(
+        self,
+        dataset_dir: Path,
+        tokenizer: CLIPTokenizer,
+        resolution: int,
+        caption_dropout_prob: float,
+        oversample_pale: int = 1,
+    ):
         self.tokenizer = tokenizer
         self.resolution = resolution
         self.caption_dropout_prob = caption_dropout_prob
 
         self.examples = []
+        n_pale = 0
         for txt_path in sorted(dataset_dir.glob("*.txt")):
             img_path = None
             for ext in (".jpg", ".jpeg", ".png"):
@@ -99,12 +108,19 @@ class HaeckelPlateDataset(Dataset):
                 print(f"warning: no image found for caption {txt_path.name}, skipping")
                 continue
             caption = txt_path.read_text(encoding="utf-8").strip()
-            self.examples.append((img_path, caption))
+            # Repeating as separate list entries (rather than a sampler weight) so __len__/
+            # epoch semantics stay simple -- an "epoch" is still just one pass over self.examples.
+            copies = oversample_pale if "pale background" in caption else 1
+            n_pale += 1 if copies > 1 else 0
+            self.examples.extend([(img_path, caption)] * copies)
 
         if not self.examples:
             raise RuntimeError(
                 f"no image/caption pairs found in {dataset_dir} -- run scripts/build_captions.py first"
             )
+        if oversample_pale > 1:
+            print(f"oversample_pale={oversample_pale}: {n_pale} pale-background example(s) "
+                  f"repeated -> {len(self.examples)} total examples per epoch")
 
     def __len__(self):
         return len(self.examples)
@@ -228,6 +244,11 @@ def parse_args():
     p.add_argument("--caption_dropout_prob", type=float, default=0.1)
     p.add_argument("--train_text_encoder", action="store_true",
                     help="also train a LoRA adapter on CLIP's text encoder, not just the UNet")
+    p.add_argument("--oversample_pale", type=int, default=1,
+                    help="repeat each 'pale background' example this many times per epoch "
+                         "(duplicates, not reweighted loss). Counteracts the model's learned bias "
+                         "toward generating black backgrounds regardless of caption -- see "
+                         "CLAUDE.md item 8. 1 = no oversampling (default).")
 
     p.add_argument("--train_batch_size", type=int, default=1)
     p.add_argument("--gradient_accumulation_steps", type=int, default=4)
@@ -356,7 +377,9 @@ def main():
           f"{' (unet + text encoder)' if args.train_text_encoder else ' (unet only)'}")
 
     # --- data ---
-    dataset = HaeckelPlateDataset(args.dataset_dir, tokenizer, args.resolution, args.caption_dropout_prob)
+    dataset = HaeckelPlateDataset(
+        args.dataset_dir, tokenizer, args.resolution, args.caption_dropout_prob, args.oversample_pale
+    )
     print(f"dataset: {len(dataset)} image/caption pairs from {args.dataset_dir}")
     dataloader = DataLoader(
         dataset,
