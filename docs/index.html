@@ -3,23 +3,36 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haeckel LoRA — Generative Diffusion on Kunstformen der Natur</title>
-<meta name="description" content="A LoRA fine-tune of Stable Diffusion 1.5 on Ernst Haeckel's Kunstformen der Natur — data pipeline, training probe, and honest evaluation, in progress.">
+<title>Haeckel LoRA</title>
+<meta name="description" content="A LoRA fine-tune of Stable Diffusion 1.5 on Ernst Haeckel's Kunstformen der Natur. Explore the training run, the background-color bias, and generated plates directly.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🔬%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300..700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #14120f;
-    --bg-raised: #1c1a15;
-    --ink: #eee6d3;
-    --ink-dim: #a99f8a;
-    --ink-faint: #756d5c;
-    --accent: #d1a954;
-    --accent-fill: rgba(209, 169, 84, 0.15);
-    --grid: #33301f;
-    --border: #332f26;
-    --cream: #ece2c8;
-    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --bg: #161616;
+    --bg-surface: #1c1c1c;
+    --bg-hover: #262626;
+    --text: #ededea;
+    --text-body: #dadada;
+    --text-dim: #9a9a96;
+    --border: #dadada1a;
+    --border-strong: #dadada38;
+    --grid-line: #dadada24;
+    --accent: #238636;
+    --accent-hover: #2ea043;
+    --accent-soft: #23863633;
+    --accent-wash: #23863614;
+    --error: #ff6b6b;
+    --error-soft: #ff6b6b26;
+    --glass: #1c1c1cbf;
+    --radius: 8px;
+    --font-sans: "Space Grotesk", system-ui, sans-serif;
+    --font-display: "Source Serif 4", Georgia, serif;
+    --font-mono: "Space Mono", "Fira Code", monospace;
+    --container: 760px;
+    --container-wide: 920px;
   }
 
   * { box-sizing: border-box; }
@@ -27,448 +40,593 @@
   body {
     margin: 0;
     background: var(--bg);
-    color: var(--ink);
-    font-family: var(--sans);
-    line-height: 1.6;
+    color: var(--text-body);
+    font-family: var(--font-sans);
+    line-height: 1.55;
+    font-size: 15.5px;
   }
   img { max-width: 100%; display: block; }
+  ::selection { background: var(--accent-soft); color: var(--text); }
 
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 1.5rem; }
+  .wrap { max-width: var(--container); margin: 0 auto; padding: 0 1.5rem; }
+  .wrap--wide { max-width: var(--container-wide); }
 
-  a { color: var(--accent); }
-
-  h1, h2, h3 { font-family: var(--serif); font-weight: 400; color: var(--cream); }
-  h2 { font-size: 1.7rem; letter-spacing: 0.01em; }
-  .eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    font-size: 0.78rem;
-    color: var(--accent);
-    font-weight: 600;
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-hover); text-decoration: underline; }
+  a:focus-visible, button:focus-visible, input:focus-visible, .chip:focus-visible {
+    outline: 2px solid var(--accent-hover); outline-offset: 2px;
   }
+
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 500; color: var(--text); text-wrap: balance; margin: 0; }
+  h2 { font-size: 1.5rem; letter-spacing: 0.01em; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 0.4em;
+    text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.7rem;
+    color: var(--text-dim); font-weight: 600; font-family: var(--font-sans);
+  }
+  .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  code, .mono { font-family: var(--font-mono); }
+
+  /* ---- nav ---- */
+  .navbar {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .navbar .wrap { display: flex; align-items: center; justify-content: space-between; height: 52px; max-width: var(--container-wide); }
+  .navbar .brand { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text); letter-spacing: -0.01em; }
+  .navbar .brand a { color: inherit; }
+  .navbar .navlinks { display: flex; gap: 1.3rem; font-size: 0.82rem; font-family: var(--font-mono); }
+  .navbar .navlinks a { color: var(--text-dim); }
+  .navbar .navlinks a:hover { color: var(--accent-hover); }
 
   /* ---- hero ---- */
-  .hero {
-    position: relative;
-    padding: 4.5rem 0 3.5rem;
-    border-bottom: 1px solid var(--border);
-    overflow: hidden;
-  }
-  .hero .wrap {
-    display: grid;
-    grid-template-columns: 1.3fr 0.7fr;
-    gap: 3rem;
-    align-items: center;
-  }
-  .hero h1 { font-size: 2.9rem; margin: 0.4rem 0 1rem; }
-  .hero p.lede { font-size: 1.1rem; color: var(--ink-dim); max-width: 46ch; }
+  .hero { padding: 3.5rem 0 2.5rem; }
+  .hero .wrap { max-width: var(--container-wide); display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 2.8rem; align-items: center; }
+  .hero h1 { font-size: 2.6rem; margin: 0.5rem 0 0.7rem; }
+  .hero p.lede { font-size: 1rem; color: var(--text-dim); max-width: 42ch; margin: 0; }
   .hero .cover-frame {
-    justify-self: center;
-    border: 1px solid var(--border);
-    padding: 10px;
-    background: var(--bg-raised);
-    box-shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
-    transform: rotate(1.2deg);
+    border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden;
+    background: var(--bg-surface);
   }
-  .hero .cover-frame img { border: 1px solid #0008; }
-
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 1.6rem;
-    padding: 0.5rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--bg-raised);
-    font-size: 0.85rem;
-    color: var(--ink-dim);
-  }
-  .status-badge .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 8px 1px var(--accent-fill);
-  }
-
-  .links { margin-top: 1.6rem; display: flex; gap: 1.4rem; font-size: 0.95rem; }
+  .stat-row { display: flex; gap: 1.6rem; margin-top: 1.6rem; flex-wrap: wrap; }
+  .stat-row .stat { display: flex; flex-direction: column; gap: 0.15rem; }
+  .stat-row .stat b { font-family: var(--font-mono); font-size: 1.3rem; color: var(--text); font-weight: 700; }
+  .stat-row .stat span { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
 
   /* ---- sections ---- */
-  section { padding: 3.5rem 0; border-bottom: 1px solid var(--border); }
+  section { padding: 3rem 0; border-bottom: 1px solid var(--border); }
   section:last-of-type { border-bottom: none; }
-  section > .wrap > p.intro { color: var(--ink-dim); max-width: 68ch; margin-top: 0.6rem; }
+  .section-head { margin-bottom: 1.6rem; }
+  .section-head h2 { margin-top: 0.4rem; }
+  .caption { font-size: 0.86rem; color: var(--text-dim); max-width: 60ch; margin: 0.5rem 0 0; }
 
-  /* pipeline timeline */
-  .timeline { margin-top: 2rem; display: grid; gap: 1.1rem; }
-  .step {
-    display: grid;
-    grid-template-columns: 28px 1fr;
-    gap: 0.9rem;
-    align-items: start;
-  }
-  .step .marker {
-    width: 28px; height: 28px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.85rem;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    margin-top: 0.15rem;
-  }
-  .step.done .marker { background: var(--accent-fill); }
-  .step.pending .marker { border-color: var(--ink-faint); color: var(--ink-faint); }
-  .step h3 { margin: 0 0 0.3rem; font-size: 1.05rem; font-family: var(--sans); font-weight: 600; color: var(--ink); }
-  .step p { margin: 0; color: var(--ink-dim); font-size: 0.95rem; }
-  .step code { color: var(--accent); font-size: 0.85em; }
-
-  /* gallery */
-  .gallery-grid {
-    margin-top: 2rem;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.9rem;
-  }
-  .gallery-grid figure { margin: 0; position: relative; overflow: hidden; background: var(--bg-raised); }
-  .gallery-grid img { aspect-ratio: 0.72; object-fit: cover; transition: transform 0.4s ease; }
-  .gallery-grid figure:hover img { transform: scale(1.06); }
+  /* ---- gallery ---- */
+  .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; }
+  .gallery-grid figure { margin: 0; position: relative; overflow: hidden; border-radius: var(--radius); background: var(--bg-surface); border: 1px solid var(--border); }
+  .gallery-grid img { aspect-ratio: 0.72; object-fit: cover; transition: transform 0.35s ease; }
+  .gallery-grid figure:hover img { transform: scale(1.05); }
   .gallery-grid figcaption {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    padding: 0.5rem 0.6rem;
-    background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
-    font-size: 0.78rem;
-    color: var(--cream);
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 0.4rem 0.5rem;
+    background: linear-gradient(to top, rgba(0,0,0,0.88), transparent);
+    font-size: 0.7rem; color: var(--text);
   }
-  .gallery-grid figcaption .order { display: block; color: var(--ink-dim); font-size: 0.7rem; }
+  .gallery-grid figcaption .order { display: block; color: var(--text-dim); font-size: 0.62rem; }
 
-  /* training progress strip */
-  .progress-strip {
-    margin-top: 1.6rem;
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 0.7rem;
+  /* ---- pipeline stepper (compact) ---- */
+  .stepper { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .stepper .step {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.8rem; border: 1px solid var(--border); border-radius: 999px;
+    font-size: 0.8rem; background: var(--bg-surface); color: var(--text-body);
   }
-  .progress-strip figure { margin: 0; }
-  .progress-strip img { border: 1px solid var(--border); }
-  .progress-strip figcaption { font-size: 0.75rem; color: var(--ink-faint); text-align: center; margin-top: 0.4rem; }
+  .stepper .step.pending { color: var(--text-dim); border-style: dashed; }
+  .stepper .step .mark { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent); }
+  .stepper .step.pending .mark { color: var(--text-dim); }
 
-  .chart-card {
-    margin-top: 2rem;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    padding: 1.4rem 1.2rem 0.6rem;
+  /* ---- card ---- */
+  .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.3rem; }
+
+  /* ---- loss chart ---- */
+  .chart-card { margin-top: 1.4rem; }
+  .chart-card .chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.4rem; }
+  .chart-card .chart-head h3 { font-family: var(--font-sans); font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 0; text-transform: uppercase; letter-spacing: 0.05em; }
+  .chart-card .chart-stat { font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent); }
+  .axis-label { fill: var(--text-dim); font-size: 10px; font-family: var(--font-mono); }
+  .loss-chart { width: 100%; height: auto; margin-top: 0.4rem; }
+  .plateau-mark { fill: var(--text-dim); font-size: 10px; font-family: var(--font-sans); }
+
+  /* ---- training scrubber ---- */
+  .scrubber { margin-top: 1.4rem; }
+  .scrubber__stage {
+    position: relative; aspect-ratio: 1; border-radius: var(--radius); overflow: hidden;
+    border: 1px solid var(--border-strong); background: var(--bg-surface);
   }
-  .chart-card h3 { margin: 0 0 0.2rem; font-size: 1rem; font-family: var(--sans); font-weight: 600; color: var(--ink); }
-  .chart-card .stat { color: var(--accent); font-family: var(--sans); font-weight: 600; }
-  .axis-label { fill: var(--ink-faint); font-size: 10px; font-family: var(--sans); }
-  .loss-chart { width: 100%; height: auto; }
+  .scrubber__stage img { width: 100%; height: 100%; object-fit: cover; }
+  .scrubber__badge {
+    position: absolute; top: 0.7rem; left: 0.7rem; padding: 0.3rem 0.65rem;
+    border-radius: 999px; font-family: var(--font-mono); font-size: 0.7rem;
+    background: var(--glass); backdrop-filter: blur(6px); border: 1px solid var(--border-strong);
+    color: var(--text-body);
+  }
+  .scrubber__badge.is-plateaued { color: var(--text-dim); }
+  .scrubber__badge.is-converging { color: var(--accent); border-color: var(--accent-soft); }
+  .scrubber__controls { display: flex; align-items: center; gap: 0.8rem; margin-top: 0.8rem; }
+  .scrubber__range { flex: 1; }
+  .scrubber__readout { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; }
+  .scrubber__readout b { color: var(--text); }
 
-  /* eval */
-  .compare-figure { margin: 0 0 1.8rem; }
-  .compare-figure img { border: 1px solid var(--border); width: 100%; }
-  .compare-figure figcaption { margin-top: 0.5rem; font-size: 0.88rem; color: var(--ink-dim); }
-  .compare-figure figcaption .label { color: var(--accent); font-weight: 600; }
-
-  .callout {
-    border-left: 3px solid var(--accent);
-    background: var(--accent-fill);
-    padding: 0.9rem 1.1rem;
-    margin: 1.5rem 0;
-    font-size: 0.92rem;
-    color: var(--ink);
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; height: 4px; background: var(--border-strong);
+    border-radius: 999px; outline-offset: 4px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--bg); cursor: pointer;
+    box-shadow: 0 0 0 1px var(--border-strong);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--bg); cursor: pointer; box-shadow: 0 0 0 1px var(--border-strong);
   }
 
-  .novel-grid {
-    margin-top: 1.6rem;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.9rem;
+  /* ---- dataset split bar ---- */
+  .split-bar { display: flex; height: 40px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-strong); margin-top: 1rem; }
+  .split-bar__seg { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 0.78rem; }
+  .split-bar__seg--black { background: #0a0a0a; color: #ededea; }
+  .split-bar__seg--pale { background: #ededea; color: #161616; }
+
+  /* ---- dot grid ---- */
+  .dot-grid { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.9rem; }
+  .dot { width: 15px; height: 15px; border-radius: 50%; display: inline-block; cursor: default; }
+  .dot--ok { background: var(--accent); }
+  .dot--miss { background: var(--error); }
+  .dot--na { background: transparent; border: 1.5px dashed var(--text-dim); }
+  .stat-line { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text); margin: 0.7rem 0 0; }
+  .stat-line .n { color: var(--accent); }
+
+  /* ---- explorer ---- */
+  .explorer { margin-top: 1.4rem; display: grid; grid-template-columns: 1fr 1.3fr; gap: 1.4rem; }
+  .chip-list { display: flex; flex-direction: column; gap: 0.35rem; max-height: 340px; overflow-y: auto; padding-right: 0.3rem; }
+  .chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-surface); cursor: pointer; font-size: 0.82rem; color: var(--text-body);
+    text-align: left; width: 100%; font-family: var(--font-sans);
   }
-  .novel-grid figure { margin: 0; background: var(--bg-raised); border: 1px solid var(--border); }
-  .novel-grid figcaption { padding: 0.5rem 0.6rem; font-size: 0.78rem; color: var(--ink-dim); }
+  .chip:hover { background: var(--bg-hover); }
+  .chip.is-active { border-color: var(--accent); background: var(--accent-wash); color: var(--text); }
+  .chip .chip-order { font-weight: 600; }
+  .chip .chip-genus { color: var(--text-dim); font-style: italic; font-size: 0.78rem; }
+  .chip .chip-pill {
+    flex: none; width: 8px; height: 8px; border-radius: 50%;
+  }
+  .chip .chip-pill.ok { background: var(--accent); }
+  .chip .chip-pill.miss { background: var(--error); }
+  .chip .chip-pill.na { background: transparent; border: 1.5px dashed var(--text-dim); }
 
-  /* status */
-  .status-grid { margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
-  .status-grid h3 { font-size: 1rem; font-family: var(--sans); font-weight: 600; color: var(--ink); margin-bottom: 0.7rem; }
-  .status-grid ul { margin: 0; padding-left: 1.2rem; color: var(--ink-dim); font-size: 0.93rem; }
-  .status-grid li { margin-bottom: 0.5rem; }
+  .explorer__view { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+  .explorer__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .explorer__pair figure { margin: 0; }
+  .explorer__pair img { border-radius: 6px; aspect-ratio: 1; object-fit: cover; border: 1px solid var(--border); }
+  .explorer__pair figcaption { font-size: 0.68rem; color: var(--text-dim); text-align: center; margin-top: 0.35rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .explorer__meta { display: flex; justify-content: space-between; align-items: baseline; margin-top: 0.8rem; font-size: 0.8rem; }
+  .explorer__meta .name { color: var(--text); font-weight: 600; }
+  .explorer__meta .german { color: var(--text-dim); font-size: 0.75rem; }
+  .explorer__verdict { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--font-mono); font-size: 0.74rem; padding: 0.25rem 0.6rem; border-radius: 999px; margin-top: 0.6rem; }
+  .explorer__verdict.ok { background: var(--accent-soft); color: var(--accent-hover); }
+  .explorer__verdict.miss { background: var(--error-soft); color: var(--error); }
+  .explorer__verdict.na { background: var(--bg-hover); color: var(--text-dim); }
 
-  footer { padding: 2.5rem 0 3.5rem; color: var(--ink-faint); font-size: 0.85rem; }
-  footer a { color: var(--ink-dim); }
+  /* ---- before/after slider ---- */
+  .ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; margin-top: 1.4rem; }
+  .ba { position: relative; }
+  .ba__stage {
+    position: relative; aspect-ratio: 1; border-radius: var(--radius); overflow: hidden;
+    border: 1px solid var(--border-strong); background: var(--bg-surface); --pos: 50%;
+  }
+  .ba__stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+  .ba__reveal { position: absolute; inset: 0; overflow: hidden; clip-path: inset(0 calc(100% - var(--pos)) 0 0); }
+  .ba__handle {
+    position: absolute; top: 0; bottom: 0; left: var(--pos); transform: translateX(-50%);
+    width: 2px; background: var(--text); pointer-events: none;
+  }
+  .ba__handle::after {
+    content: "⟷"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 30px; height: 30px; border-radius: 50%; background: var(--text); color: var(--bg);
+    display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
+  }
+  .ba__label {
+    position: absolute; bottom: 0.6rem; font-family: var(--font-mono); font-size: 0.65rem;
+    padding: 0.25rem 0.5rem; border-radius: 4px; background: var(--glass); color: var(--text-body);
+    text-transform: uppercase; letter-spacing: 0.04em; pointer-events: none;
+  }
+  .ba__label--gen { right: 0.6rem; }
+  .ba__label--real { left: 0.6rem; }
+  .ba__range {
+    position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize;
+  }
+  .ba__caption { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.6rem; }
+  .ba__caption b { color: var(--text); font-weight: 600; }
+  .ba__caption .verdict { font-family: var(--font-mono); font-size: 0.7rem; }
+  .ba__caption .verdict.ok { color: var(--accent); }
+  .ba__caption .verdict.miss { color: var(--error); }
+
+  /* ---- novel grid ---- */
+  .novel-grid { margin-top: 1.4rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; }
+  .novel-grid figure { margin: 0; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .novel-grid img { aspect-ratio: 1; object-fit: cover; }
+  .novel-grid figcaption { padding: 0.5rem 0.6rem; font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono); }
+
+  /* ---- status chips ---- */
+  .status-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; }
+  .status-cols h3 { font-family: var(--font-sans); font-size: 0.78rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.7rem; }
+  .status-list { display: flex; flex-direction: column; gap: 0.4rem; }
+  .status-list .item {
+    font-size: 0.83rem; color: var(--text-body); padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface);
+  }
+  .status-list .item.done { border-left: 2px solid var(--accent); }
+  .status-list .item.open { border-left: 2px solid var(--text-dim); }
+
+  footer { padding: 2.2rem 0 3rem; color: var(--text-dim); font-size: 0.8rem; }
+  footer a { color: var(--text-dim); }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; }
 
   @media (max-width: 760px) {
     .hero .wrap { grid-template-columns: 1fr; }
-    .hero .cover-frame { order: -1; max-width: 220px; }
+    .hero .cover-frame { order: -1; max-width: 220px; margin: 0 auto; }
     .gallery-grid { grid-template-columns: repeat(2, 1fr); }
-    .progress-strip { grid-template-columns: repeat(3, 1fr); }
     .novel-grid { grid-template-columns: repeat(2, 1fr); }
-    .status-grid { grid-template-columns: 1fr; }
+    .status-cols { grid-template-columns: 1fr; }
+    .ba-grid { grid-template-columns: 1fr; }
+    .explorer { grid-template-columns: 1fr; }
+    .explorer__pair { grid-template-columns: 1fr 1fr; }
   }
 </style>
 </head>
 <body>
 
-<header class="hero">
+<nav class="navbar">
+  <div class="wrap">
+    <div class="brand"><a href="#top">haeckel-lora</a></div>
+    <div class="navlinks">
+      <a href="#training">training</a>
+      <a href="#bias">bias</a>
+      <a href="#eval">eval</a>
+      <a href="https://github.com/hulashc/haeckel-lora">source →</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
   <div class="wrap">
     <div>
       <div class="eyebrow">Ernst Haeckel × Stable Diffusion 1.5</div>
       <h1>Haeckel LoRA</h1>
-      <p class="lede">
-        A LoRA fine-tune trained on all 100 plates of <em>Kunstformen der Natur</em> (1899–1904),
-        exploring what a small, tight visual domain teaches a generative model that a broad one
-        can't — and whether it can dream up specimens Haeckel never drew, in a style he'd
-        recognize as his own.
-      </p>
-      <div class="status-badge"><span class="dot"></span> Research in progress — extended training complete, background-color caption fix applied, genus-specific structural fidelity still open</div>
-      <div class="links">
-        <a href="https://github.com/hulashc/haeckel-lora">GitHub repo →</a>
-        <a href="https://en.wikipedia.org/wiki/Kunstformen_der_Natur">About Kunstformen der Natur →</a>
+      <p class="lede">A LoRA trained on all 100 plates of <em>Kunstformen der Natur</em>. Scroll to explore the training run and generated plates directly — drag, scrub, click.</p>
+      <div class="stat-row">
+        <div class="stat"><b class="tnum">100</b><span>plates</span></div>
+        <div class="stat"><b class="tnum">124</b><span>epochs</span></div>
+        <div class="stat"><b class="tnum">6/11</b><span>bg-color accuracy</span></div>
       </div>
     </div>
     <div class="cover-frame">
-      <img src="assets/cover.jpg" alt="Cover page of Ernst Haeckel's Kunstformen der Natur, 1904">
+      <img src="assets/cover.jpg" alt="Cover of Ernst Haeckel's Kunstformen der Natur, 1904">
     </div>
   </div>
 </header>
 
-<section id="about">
-  <div class="wrap">
-    <div class="eyebrow">Why Haeckel</div>
-    <h2>One hundred plates, one visual signature</h2>
-    <p class="intro">
-      <em>Kunstformen der Natur</em> is public domain, ~100 plates, and every plate follows the
-      same recipe: one or more biological specimens, often radially symmetric, arranged in a
-      multi-panel grid and rendered as a lithograph with fine line work and saturated ink — on
-      either a pale cream or a stark black background, split roughly evenly across the set (52
-      black, 48 pale, measured directly from the scans, not eyeballed). That signature is strong
-      enough that an output either looks like Haeckel or obviously doesn't — which makes a
-      model's progress genuinely inspectable rather than a vibes-based "looks cool to me" call.
-    </p>
-    <p class="intro">
-      Haeckel was also drawing things — deep-sea radiolaria, siphonophores — that nobody had seen
-      in this kind of detail before. A model that interpolates between plates should produce
-      specimens that don't exist but feel like they could: a version of what Haeckel was doing a
-      century earlier, only now the "field notes" are weights instead of microscope slides.
-    </p>
-  </div>
-</section>
-
-<section id="pipeline">
-  <div class="wrap">
-    <div class="eyebrow">How it's built</div>
-    <h2>The pipeline</h2>
-    <div class="timeline">
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Scrape — 100 plates + cover</h3>
-          <p>300dpi scans from the Internet Archive / BioLib.de source, verified complete: no missing or corrupt files.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Deduplicate</h3>
-          <p>Perceptual hashing across all 100 plates. Zero near-duplicates — expected, since these are 100 distinct illustrations, not a scraped photo corpus.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Caption</h3>
-          <p>Every plate's own printed genus, order, and German name transcribed directly off the plate — more accurate than the ~51% Wikimedia Commons categorizes, and one of those is outright wrong.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Full per-figure documentation</h3>
-          <p>1,102 individual specimens documented from Haeckel's own companion explanatory volume — a genuinely bug-prone pipeline (OCR page-boundary bugs, two caught LLM-fabrication incidents) with an honest incident writeup in the repo.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Training script</h3>
-          <p>Rank-16 LoRA on SD1.5's UNet cross-attention (<code>to_q</code>/<code>to_k</code>/<code>to_v</code>/<code>to_out.0</code>), designed around a real 6GB VRAM ceiling: bf16 autocast, gradient checkpointing, batch size 1 + gradient accumulation.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Training run — 124 epochs, 3,100 steps</h3>
-          <p>Started as a 50-epoch probe, kept running well past that point. Loss dropped for the first ~50 epochs, then plateaued — the extra 74 epochs bought almost nothing further on the loss curve. Results below.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Evaluation script</h3>
-          <p>Fixed, seeded prompt sets — faithfulness (real captions vs. generated, side-by-side) and novel recombinations — so results are comparable across checkpoints.</p>
-        </div>
-      </div>
-      <div class="step done">
-        <div class="marker">✓</div>
-        <div>
-          <h3>Background-color caption fix</h3>
-          <p>The full eval surfaced a real bug: captions never mentioned background color, so the model guessed. Fixed by measuring each plate's actual background from its pixels and adding it to the caption — see "Chasing a bias" below for the honest result.</p>
-        </div>
-      </div>
-      <div class="step pending">
-        <div class="marker">○</div>
-        <div>
-          <h3>Genus-specific structural fidelity</h3>
-          <p>Style and layout converge well before order-specific anatomy does — a jellyfish prompt can still render as an abstract, non-jellyfish shape. Open problem, not yet attempted.</p>
-        </div>
-      </div>
+<section id="gallery">
+  <div class="wrap wrap--wide">
+    <div class="section-head">
+      <div class="eyebrow">Source material</div>
+      <h2>100 plates, ~90 orders</h2>
+    </div>
+    <div class="gallery-grid">
+      <figure><img src="assets/gallery/008.jpg" alt="Tafel 8, Desmonema, Discomedusae"><figcaption>Desmonema<span class="order">Discomedusae</span></figcaption></figure>
+      <figure><img src="assets/gallery/001.jpg" alt="Tafel 1, Circogonia, Phaeodaria"><figcaption>Circogonia<span class="order">Phaeodaria</span></figcaption></figure>
+      <figure><img src="assets/gallery/039.jpg" alt="Tafel 39, Gorgonia, Gorgonida"><figcaption>Gorgonia<span class="order">Gorgonida</span></figcaption></figure>
+      <figure><img src="assets/gallery/074.jpg" alt="Tafel 74, Cypripedium, Orchideae"><figcaption>Cypripedium<span class="order">Orchideae</span></figcaption></figure>
+      <figure><img src="assets/gallery/099.jpg" alt="Tafel 99, Trochilus, Trochilidae"><figcaption>Trochilus<span class="order">Trochilidae</span></figcaption></figure>
+      <figure><img src="assets/gallery/067.jpg" alt="Tafel 67, Vampyrus, Chiroptera"><figcaption>Vampyrus<span class="order">Chiroptera</span></figcaption></figure>
+      <figure><img src="assets/gallery/042.jpg" alt="Tafel 42, Ostracion, Ostraciontes"><figcaption>Ostracion<span class="order">Ostraciontes</span></figcaption></figure>
+      <figure><img src="assets/gallery/100.jpg" alt="Tafel 100, Antilope, Antilopina"><figcaption>Antilope<span class="order">Antilopina</span></figcaption></figure>
     </div>
   </div>
 </section>
 
-<section id="gallery">
-  <div class="wrap">
-    <div class="eyebrow">The source material</div>
-    <h2>A sample of the 100 plates</h2>
-    <p class="intro">Haeckel drew far beyond radiolaria and jellyfish — bats, hummingbirds, orchids, antelope. The dataset's breadth is part of what makes the training run below interesting: 100 images spread across ~90 distinct taxonomic orders is a hard generalization problem.</p>
-    <div class="gallery-grid">
-      <figure><img src="assets/gallery/008.jpg" alt="Tafel 8, Desmonema, Discomedusae"><figcaption>Desmonema<span class="order">Discomedusae — jellyfish</span></figcaption></figure>
-      <figure><img src="assets/gallery/001.jpg" alt="Tafel 1, Circogonia, Phaeodaria"><figcaption>Circogonia<span class="order">Phaeodaria — radiolaria</span></figcaption></figure>
-      <figure><img src="assets/gallery/039.jpg" alt="Tafel 39, Gorgonia, Gorgonida"><figcaption>Gorgonia<span class="order">Gorgonida — coral</span></figcaption></figure>
-      <figure><img src="assets/gallery/074.jpg" alt="Tafel 74, Cypripedium, Orchideae"><figcaption>Cypripedium<span class="order">Orchideae — orchids</span></figcaption></figure>
-      <figure><img src="assets/gallery/099.jpg" alt="Tafel 99, Trochilus, Trochilidae"><figcaption>Trochilus<span class="order">Trochilidae — hummingbirds</span></figcaption></figure>
-      <figure><img src="assets/gallery/067.jpg" alt="Tafel 67, Vampyrus, Chiroptera"><figcaption>Vampyrus<span class="order">Chiroptera — bats</span></figcaption></figure>
-      <figure><img src="assets/gallery/042.jpg" alt="Tafel 42, Ostracion, Ostraciontes"><figcaption>Ostracion<span class="order">Ostraciontes — boxfish</span></figcaption></figure>
-      <figure><img src="assets/gallery/100.jpg" alt="Tafel 100, Antilope, Antilopina"><figcaption>Antilope<span class="order">Antilopina — antelope</span></figcaption></figure>
+<section id="pipeline">
+  <div class="wrap wrap--wide">
+    <div class="section-head">
+      <div class="eyebrow">Pipeline</div>
+      <h2>Scrape to eval</h2>
+    </div>
+    <div class="stepper">
+      <div class="step"><span class="mark">✓</span> Scrape — 100 plates</div>
+      <div class="step"><span class="mark">✓</span> Dedup — 0 near-dupes</div>
+      <div class="step"><span class="mark">✓</span> Caption — genus/order/bg-color</div>
+      <div class="step"><span class="mark">✓</span> 1,102-figure docs</div>
+      <div class="step"><span class="mark">✓</span> Rank-16 LoRA, 6GB VRAM</div>
+      <div class="step"><span class="mark">✓</span> 124 epochs, 3,100 steps</div>
+      <div class="step"><span class="mark">✓</span> Full seeded eval</div>
+      <div class="step"><span class="mark">✓</span> Background-color fix</div>
+      <div class="step pending"><span class="mark">○</span> Genus-specific anatomy</div>
     </div>
   </div>
 </section>
 
 <section id="training">
-  <div class="wrap">
-    <div class="eyebrow">124-epoch run</div>
-    <h2>Watching the style emerge, then plateau</h2>
-    <p class="intro">Same prompt, same seed, sampled at checkpoints across the full run. Style and layout converge early; the honest finding of this run is that it plateaus, not that it keeps improving forever.</p>
-    <div class="progress-strip">
-      <figure><img src="assets/progress/step-000750.jpg" alt="Sample at step 750"><figcaption>step 750</figcaption></figure>
-      <figure><img src="assets/progress/step-001500.jpg" alt="Sample at step 1500"><figcaption>step 1500</figcaption></figure>
-      <figure><img src="assets/progress/step-002250.jpg" alt="Sample at step 2250"><figcaption>step 2250</figcaption></figure>
-      <figure><img src="assets/progress/step-003000.jpg" alt="Sample at step 3000"><figcaption>step 3000</figcaption></figure>
-    </div>
-    <div class="chart-card">
-      <h3>Training loss, per-epoch mean</h3>
-      <p style="color: var(--ink-dim); font-size: 0.88rem; margin-top: 0;">
-        <span class="stat">0.188 → ~0.15, flat from ~epoch 50 on</span> across all 124 epochs.
-        Diffusion MSE loss is inherently noisy per-timestep — this is the honest per-epoch curve,
-        not smoothed to look cleaner than it is. It drops for the first third of the run, then
-        plateaus for the remaining two-thirds — more epochs on this same 100-image dataset
-        stopped buying anything.
-      </p>
-      <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" class="loss-chart" role="img" aria-label="Training loss per epoch, 0 to 123">
-<line x1="44" y1="16" x2="704" y2="16" stroke="var(--grid)" stroke-width="1"/><text x="36" y="20" text-anchor="end" class="axis-label">0.211</text><line x1="44" y1="69" x2="704" y2="69" stroke="var(--grid)" stroke-width="1"/><text x="36" y="73" text-anchor="end" class="axis-label">0.183</text><line x1="44" y1="122" x2="704" y2="122" stroke="var(--grid)" stroke-width="1"/><text x="36" y="126" text-anchor="end" class="axis-label">0.155</text><line x1="44" y1="175" x2="704" y2="175" stroke="var(--grid)" stroke-width="1"/><text x="36" y="179" text-anchor="end" class="axis-label">0.128</text><line x1="44" y1="228" x2="704" y2="228" stroke="var(--grid)" stroke-width="1"/><text x="36" y="232" text-anchor="end" class="axis-label">0.100</text>
-<path d="M 44.0,59.5 L 49.4,80.0 L 54.7,115.9 L 60.1,139.9 L 65.5,146.9 L 70.8,201.5 L 76.2,128.7 L 81.6,100.6 L 86.9,200.9 L 92.3,171.3 L 97.7,60.1 L 103.0,115.9 L 108.4,157.0 L 113.8,97.8 L 119.1,112.5 L 124.5,108.2 L 129.9,142.4 L 135.2,159.7 L 140.6,76.6 L 146.0,115.0 L 151.3,124.5 L 156.7,93.3 L 162.0,137.4 L 167.4,110.3 L 172.8,151.6 L 178.1,179.2 L 183.5,91.6 L 188.9,92.7 L 194.2,159.3 L 199.6,155.6 L 205.0,34.9 L 210.3,180.5 L 215.7,125.3 L 221.1,156.9 L 226.4,146.4 L 231.8,172.2 L 237.2,133.3 L 242.5,142.4 L 247.9,184.0 L 253.3,83.6 L 258.6,117.0 L 264.0,144.7 L 269.4,199.6 L 274.7,183.2 L 280.1,146.1 L 285.5,148.3 L 290.8,178.3 L 296.2,81.5 L 301.6,118.6 L 306.9,173.1 L 312.3,155.5 L 317.7,159.5 L 323.0,136.2 L 328.4,126.0 L 333.8,63.9 L 339.1,104.4 L 344.5,153.4 L 349.9,68.2 L 355.2,150.7 L 360.6,135.9 L 366.0,203.4 L 371.3,101.9 L 376.7,185.9 L 382.0,111.2 L 387.4,171.8 L 392.8,201.8 L 398.1,221.8 L 403.5,86.1 L 408.9,141.9 L 414.2,179.5 L 419.6,96.3 L 425.0,159.6 L 430.3,107.1 L 435.7,98.7 L 441.1,152.6 L 446.4,167.6 L 451.8,190.4 L 457.2,60.2 L 462.5,184.0 L 467.9,27.7 L 473.3,138.8 L 478.6,82.1 L 484.0,173.6 L 489.4,151.2 L 494.7,208.0 L 500.1,103.8 L 505.5,137.5 L 510.8,214.7 L 516.2,75.8 L 521.6,108.7 L 526.9,113.5 L 532.3,105.4 L 537.7,110.3 L 543.0,150.2 L 548.4,94.7 L 553.8,166.4 L 559.1,142.2 L 564.5,50.3 L 569.9,100.0 L 575.2,84.8 L 580.6,159.6 L 586.0,160.8 L 591.3,154.2 L 596.7,158.2 L 602.0,94.2 L 607.4,174.3 L 612.8,202.4 L 618.1,111.2 L 623.5,195.4 L 628.9,178.9 L 634.2,160.0 L 639.6,184.4 L 645.0,42.0 L 650.3,87.2 L 655.7,141.0 L 661.1,154.6 L 666.4,175.5 L 671.8,206.2 L 677.2,160.1 L 682.5,117.0 L 687.9,150.1 L 693.3,143.3 L 698.6,146.7 L 704.0,116.5 L 704.0,228 L 44.0,228 Z" fill="var(--accent-fill)" stroke="none"/>
-<path d="M 44.0,59.5 L 49.4,80.0 L 54.7,115.9 L 60.1,139.9 L 65.5,146.9 L 70.8,201.5 L 76.2,128.7 L 81.6,100.6 L 86.9,200.9 L 92.3,171.3 L 97.7,60.1 L 103.0,115.9 L 108.4,157.0 L 113.8,97.8 L 119.1,112.5 L 124.5,108.2 L 129.9,142.4 L 135.2,159.7 L 140.6,76.6 L 146.0,115.0 L 151.3,124.5 L 156.7,93.3 L 162.0,137.4 L 167.4,110.3 L 172.8,151.6 L 178.1,179.2 L 183.5,91.6 L 188.9,92.7 L 194.2,159.3 L 199.6,155.6 L 205.0,34.9 L 210.3,180.5 L 215.7,125.3 L 221.1,156.9 L 226.4,146.4 L 231.8,172.2 L 237.2,133.3 L 242.5,142.4 L 247.9,184.0 L 253.3,83.6 L 258.6,117.0 L 264.0,144.7 L 269.4,199.6 L 274.7,183.2 L 280.1,146.1 L 285.5,148.3 L 290.8,178.3 L 296.2,81.5 L 301.6,118.6 L 306.9,173.1 L 312.3,155.5 L 317.7,159.5 L 323.0,136.2 L 328.4,126.0 L 333.8,63.9 L 339.1,104.4 L 344.5,153.4 L 349.9,68.2 L 355.2,150.7 L 360.6,135.9 L 366.0,203.4 L 371.3,101.9 L 376.7,185.9 L 382.0,111.2 L 387.4,171.8 L 392.8,201.8 L 398.1,221.8 L 403.5,86.1 L 408.9,141.9 L 414.2,179.5 L 419.6,96.3 L 425.0,159.6 L 430.3,107.1 L 435.7,98.7 L 441.1,152.6 L 446.4,167.6 L 451.8,190.4 L 457.2,60.2 L 462.5,184.0 L 467.9,27.7 L 473.3,138.8 L 478.6,82.1 L 484.0,173.6 L 489.4,151.2 L 494.7,208.0 L 500.1,103.8 L 505.5,137.5 L 510.8,214.7 L 516.2,75.8 L 521.6,108.7 L 526.9,113.5 L 532.3,105.4 L 537.7,110.3 L 543.0,150.2 L 548.4,94.7 L 553.8,166.4 L 559.1,142.2 L 564.5,50.3 L 569.9,100.0 L 575.2,84.8 L 580.6,159.6 L 586.0,160.8 L 591.3,154.2 L 596.7,158.2 L 602.0,94.2 L 607.4,174.3 L 612.8,202.4 L 618.1,111.2 L 623.5,195.4 L 628.9,178.9 L 634.2,160.0 L 639.6,184.4 L 645.0,42.0 L 650.3,87.2 L 655.7,141.0 L 661.1,154.6 L 666.4,175.5 L 671.8,206.2 L 677.2,160.1 L 682.5,117.0 L 687.9,150.1 L 693.3,143.3 L 698.6,146.7 L 704.0,116.5" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<text x="44.0" y="246" text-anchor="middle" class="axis-label">ep 0</text><text x="210.3" y="246" text-anchor="middle" class="axis-label">ep 31</text><text x="376.7" y="246" text-anchor="middle" class="axis-label">ep 62</text><text x="537.7" y="246" text-anchor="middle" class="axis-label">ep 92</text><text x="704.0" y="246" text-anchor="middle" class="axis-label">ep 123</text>
-</svg>
+  <div class="wrap wrap--wide">
+    <div class="section-head">
+      <div class="eyebrow">124-epoch run</div>
+      <h2>Converges, then plateaus</h2>
+      <p class="caption">Drag to scrub through the run. Loss drops for ~50 epochs, then goes flat — the remaining ~74 epochs bought almost nothing.</p>
     </div>
 
-    <h3 style="font-family: var(--sans); font-size: 1.1rem; color: var(--ink); margin-top: 2.5rem;">Chasing a bias, and calling it</h3>
-    <p class="intro" style="margin-top: 0.4rem;">
-      The full eval (below) found the model frequently generated the wrong background color for a
-      given plate — and the root cause was simple: captions never mentioned background color at
-      all, so there was nothing to learn it from. Fixed that by measuring each plate's real
-      background directly from its pixels (median luminance of a central crop, not guessed) and
-      adding a <code>black background</code> / <code>pale background</code> tag to every caption.
-    </p>
-    <p class="intro" style="margin-top: 0.8rem;">
-      The fix worked on some plates immediately and not on others. A follow-up run that doubled
-      how often pale-background examples appeared in training, for 40 more epochs, didn't
-      change the aggregate result at all — one plate flipped from wrong to right, another flipped
-      from right to wrong, net zero. A handful of aquatic subjects (siphonophores, boxfish)
-      consistently render with a teal background regardless of the caption tag, which looks like
-      the model has learned "aquatic subject → teal" as a stronger association than the literal
-      instruction. Two rounds of "more epochs, same approach" produced no further gain, so this
-      is where it stands: real, partial, well-understood progress rather than a solved problem —
-      and for this project's actual goal (novel specimens, not a photocopier), background-color
-      drift reads as more of the same generative variety Haeckel's own plates already have, not
-      a defect to keep burning GPU hours on.
-    </p>
+    <div class="scrubber">
+      <div class="scrubber__stage">
+        <img id="scrub-img" src="assets/progress/step-000750.jpg" alt="Training sample">
+        <span id="scrub-badge" class="scrubber__badge is-converging">step 750 · converging</span>
+      </div>
+      <div class="scrubber__controls">
+        <input type="range" class="scrubber__range" id="scrub-range" min="0" max="3" step="1" value="0" aria-label="Scrub through training checkpoints">
+        <span class="scrubber__readout"><b id="scrub-step">750</b> / 3,100 steps</span>
+      </div>
+    </div>
+
+    <div class="chart-card card">
+      <div class="chart-head">
+        <h3>Loss, per-epoch mean</h3>
+        <span class="chart-stat tnum">0.188 → ~0.15, flat from ep. 50</span>
+      </div>
+      <svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" class="loss-chart" role="img" aria-label="Training loss per epoch, 0 to 123, plateauing after epoch 50">
+<line x1="40" y1="12" x2="704" y2="12" stroke="var(--grid-line)" stroke-width="1"/><text x="32" y="16" text-anchor="end" class="axis-label">0.211</text>
+<line x1="40" y1="65" x2="704" y2="65" stroke="var(--grid-line)" stroke-width="1"/><text x="32" y="69" text-anchor="end" class="axis-label">0.183</text>
+<line x1="40" y1="118" x2="704" y2="118" stroke="var(--grid-line)" stroke-width="1"/><text x="32" y="122" text-anchor="end" class="axis-label">0.155</text>
+<line x1="40" y1="171" x2="704" y2="171" stroke="var(--grid-line)" stroke-width="1"/><text x="32" y="175" text-anchor="end" class="axis-label">0.128</text>
+<line x1="40" y1="224" x2="704" y2="224" stroke="var(--grid-line)" stroke-width="1"/><text x="32" y="228" text-anchor="end" class="axis-label">0.100</text>
+<line x1="309.9" y1="12" x2="309.9" y2="224" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="309.9" y="8" text-anchor="middle" class="plateau-mark">epoch 50 — plateau starts</text>
+<path d="M 40.0,55.5 L 45.4,76.0 L 50.8,111.9 L 56.2,135.9 L 61.6,142.9 L 67.0,197.5 L 72.4,124.7 L 77.8,96.6 L 83.2,196.9 L 88.6,167.3 L 94.0,56.1 L 99.4,111.9 L 104.8,153.0 L 110.2,93.8 L 115.6,108.5 L 121.0,104.2 L 126.4,138.4 L 131.8,155.7 L 137.2,72.6 L 142.6,111.0 L 148.0,120.5 L 153.4,89.3 L 158.8,133.4 L 164.2,106.3 L 169.6,147.6 L 175.0,175.2 L 180.4,87.6 L 185.8,88.7 L 191.2,155.3 L 196.6,151.6 L 202.0,30.9 L 207.3,176.5 L 212.7,121.3 L 218.1,152.9 L 223.5,142.4 L 228.9,168.2 L 234.3,129.3 L 239.7,138.4 L 245.1,180.0 L 250.5,79.6 L 255.9,113.0 L 261.3,140.7 L 266.7,195.6 L 272.1,179.2 L 277.5,142.1 L 282.9,144.3 L 288.3,174.3 L 293.7,77.5 L 299.1,114.6 L 304.5,169.1 L 309.9,151.5 L 315.3,155.5 L 320.7,132.2 L 326.1,122.0 L 331.5,59.9 L 336.9,100.4 L 342.3,149.4 L 347.7,64.2 L 353.1,146.7 L 358.5,131.9 L 363.9,199.4 L 369.3,97.9 L 374.7,181.9 L 380.1,107.2 L 385.5,167.8 L 390.9,197.8 L 396.3,217.8 L 401.7,82.1 L 407.1,137.9 L 412.5,175.5 L 417.9,92.3 L 423.3,155.6 L 428.7,103.1 L 434.1,94.7 L 439.5,148.6 L 444.9,163.6 L 450.3,186.4 L 455.7,56.2 L 461.1,180.0 L 466.5,23.7 L 471.9,134.8 L 477.3,78.1 L 482.7,169.6 L 488.1,147.2 L 493.5,204.0 L 498.9,99.8 L 504.3,133.5 L 509.7,210.7 L 515.1,71.8 L 520.5,104.7 L 525.9,109.5 L 531.3,101.4 L 536.7,106.3 L 542.0,146.2 L 547.4,90.7 L 552.8,162.4 L 558.2,138.2 L 563.6,46.3 L 569.0,96.0 L 574.4,80.8 L 579.8,155.6 L 585.2,156.8 L 590.6,150.2 L 596.0,154.2 L 601.4,90.2 L 606.8,170.3 L 612.2,198.4 L 617.6,107.2 L 623.0,191.4 L 628.4,174.9 L 633.8,156.0 L 639.2,180.4 L 644.6,38.0 L 650.0,83.2 L 655.4,137.0 L 660.8,150.6 L 666.2,171.5 L 671.6,202.2 L 677.0,156.1 L 682.4,113.0 L 687.8,146.1 L 693.2,139.3 L 698.6,142.7 L 704.0,112.5 L 704.0,224.0 L 40.0,224.0 Z" fill="var(--accent-wash)" stroke="none"/>
+<path d="M 40.0,55.5 L 45.4,76.0 L 50.8,111.9 L 56.2,135.9 L 61.6,142.9 L 67.0,197.5 L 72.4,124.7 L 77.8,96.6 L 83.2,196.9 L 88.6,167.3 L 94.0,56.1 L 99.4,111.9 L 104.8,153.0 L 110.2,93.8 L 115.6,108.5 L 121.0,104.2 L 126.4,138.4 L 131.8,155.7 L 137.2,72.6 L 142.6,111.0 L 148.0,120.5 L 153.4,89.3 L 158.8,133.4 L 164.2,106.3 L 169.6,147.6 L 175.0,175.2 L 180.4,87.6 L 185.8,88.7 L 191.2,155.3 L 196.6,151.6 L 202.0,30.9 L 207.3,176.5 L 212.7,121.3 L 218.1,152.9 L 223.5,142.4 L 228.9,168.2 L 234.3,129.3 L 239.7,138.4 L 245.1,180.0 L 250.5,79.6 L 255.9,113.0 L 261.3,140.7 L 266.7,195.6 L 272.1,179.2 L 277.5,142.1 L 282.9,144.3 L 288.3,174.3 L 293.7,77.5 L 299.1,114.6 L 304.5,169.1 L 309.9,151.5 L 315.3,155.5 L 320.7,132.2 L 326.1,122.0 L 331.5,59.9 L 336.9,100.4 L 342.3,149.4 L 347.7,64.2 L 353.1,146.7 L 358.5,131.9 L 363.9,199.4 L 369.3,97.9 L 374.7,181.9 L 380.1,107.2 L 385.5,167.8 L 390.9,197.8 L 396.3,217.8 L 401.7,82.1 L 407.1,137.9 L 412.5,175.5 L 417.9,92.3 L 423.3,155.6 L 428.7,103.1 L 434.1,94.7 L 439.5,148.6 L 444.9,163.6 L 450.3,186.4 L 455.7,56.2 L 461.1,180.0 L 466.5,23.7 L 471.9,134.8 L 477.3,78.1 L 482.7,169.6 L 488.1,147.2 L 493.5,204.0 L 498.9,99.8 L 504.3,133.5 L 509.7,210.7 L 515.1,71.8 L 520.5,104.7 L 525.9,109.5 L 531.3,101.4 L 536.7,106.3 L 542.0,146.2 L 547.4,90.7 L 552.8,162.4 L 558.2,138.2 L 563.6,46.3 L 569.0,96.0 L 574.4,80.8 L 579.8,155.6 L 585.2,156.8 L 590.6,150.2 L 596.0,154.2 L 601.4,90.2 L 606.8,170.3 L 612.2,198.4 L 617.6,107.2 L 623.0,191.4 L 628.4,174.9 L 633.8,156.0 L 639.2,180.4 L 644.6,38.0 L 650.0,83.2 L 655.4,137.0 L 660.8,150.6 L 666.2,171.5 L 671.6,202.2 L 677.0,156.1 L 682.4,113.0 L 687.8,146.1 L 693.2,139.3 L 698.6,142.7 L 704.0,112.5" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="40" y="238" class="axis-label">ep 0</text><text x="700" y="238" text-anchor="end" class="axis-label">ep 123</text>
+</svg>
+    </div>
+  </div>
+</section>
+
+<section id="bias">
+  <div class="wrap wrap--wide">
+    <div class="section-head">
+      <div class="eyebrow">Root cause, found and fixed</div>
+      <h2>The background-color bias</h2>
+      <p class="caption">Captions never mentioned background color, so the model guessed. Fixed by measuring each plate's real background from its pixels — a clean, wide split, not a guess.</p>
+    </div>
+
+    <div class="split-bar" role="img" aria-label="52 plates black background, 48 plates pale background">
+      <div class="split-bar__seg split-bar__seg--black" style="width:52%">52 black</div>
+      <div class="split-bar__seg split-bar__seg--pale" style="width:48%">48 pale</div>
+    </div>
+
+    <p class="caption" style="margin-top: 1.6rem;">Two rounds of fine-tuning later (including one that doubled pale-example exposure for 40 more epochs), here's the honest result on the 12-plate eval sample — no net gain between rounds, some plates just traded places:</p>
+    <div class="dot-grid" aria-label="6 correct, 5 wrong, 1 not applicable">
+      <span class="dot dot--ok" title="009 Hexacoralla — correct"></span>
+      <span class="dot dot--ok" title="026 Trachomedusae — correct"></span>
+      <span class="dot dot--ok" title="034 Melethallia — correct"></span>
+      <span class="dot dot--ok" title="067 Chiroptera — correct"></span>
+      <span class="dot dot--ok" title="076 Thoracostraca — correct"></span>
+      <span class="dot dot--ok" title="084 Diatomea — correct"></span>
+      <span class="dot dot--miss" title="001 Phaeodaria — wrong"></span>
+      <span class="dot dot--miss" title="017 Siphonophorae — wrong"></span>
+      <span class="dot dot--miss" title="042 Ostraciontes — wrong"></span>
+      <span class="dot dot--miss" title="051 Polycyttaria — wrong"></span>
+      <span class="dot dot--miss" title="059 Siphonophorae — wrong"></span>
+      <span class="dot dot--na" title="092 Filicinae — full scene, not applicable"></span>
+    </div>
+    <p class="stat-line"><span class="n">6/11</span> correct background color <span style="color:var(--text-dim); font-weight:400;">(1 plate excluded — full outdoor scene, not a flat-background plate)</span></p>
+
+    <div class="explorer">
+      <div class="chip-list" id="explorer-chips"></div>
+      <div class="explorer__view" id="explorer-view"></div>
+    </div>
   </div>
 </section>
 
 <section id="eval">
-  <div class="wrap">
-    <div class="eyebrow">Evaluation</div>
-    <h2>Where it's faithful, where it invents</h2>
-    <p class="intro">Real plate on the left, generated image on the right, from the exact same caption the model trained on.</p>
-
-    <figure class="compare-figure">
-      <img src="assets/eval/084_compare.jpg" alt="Comparison for plate 84, Navicula, Diatomea">
-      <figcaption><span class="label">Tafel 84 — Navicula, Diatomea.</span> A genuine win: correct black background, correct multi-panel grid of geometric diatom shells, close enough to pass at a glance. Style, layout, and the background-color fix are all working together here.</figcaption>
-    </figure>
-
-    <figure class="compare-figure">
-      <img src="assets/eval/026_compare.jpg" alt="Comparison for plate 26, Carmaris, Trachomedusae">
-      <figcaption><span class="label">Tafel 26 — Carmaris, Trachomedusae (jellyfish).</span> The nuanced case: the background-color fix worked here — pale background, correctly — but the jellyfish itself rendered as an abstract, cage-like structure rather than anything jellyfish-shaped. Background color and genus-specific anatomy are separate problems, solved on separate timelines.</figcaption>
-    </figure>
-
-    <figure class="compare-figure">
-      <img src="assets/eval/042_compare.jpg" alt="Comparison for plate 42, Ostracion, Ostraciontes">
-      <figcaption><span class="label">Tafel 42 — Ostracion, Ostraciontes (boxfish).</span> The honest miss: caption says "pale background," output is teal, and two separate rounds of fine-tuning (including one that specifically doubled pale-example exposure) didn't move it. Aquatic subjects seem to have "teal" baked in stronger than the literal instruction.</figcaption>
-    </figure>
-
-    <div class="callout">
-      Read honestly: this is the eval script doing its job, not a disappointing result being
-      hidden. Style and layout converge fast and hold up well; genus-specific anatomy and a
-      handful of stubborn background-color associations are the real remaining gaps, and more
-      epochs on the same 100-image dataset has stopped moving either one. Worth revisiting with a
-      different approach (caption structure, learning rate, or just more/different training data)
-      rather than more of the same.
+  <div class="wrap wrap--wide">
+    <div class="section-head">
+      <div class="eyebrow">Real plate vs. generated</div>
+      <h2>Drag to compare</h2>
+      <p class="caption">Same caption the model trained on. A win, a nuanced case, and an honest miss — not cherry-picked.</p>
+    </div>
+    <div class="ba-grid">
+      <div>
+        <div class="ba" id="ba-084">
+          <div class="ba__stage">
+            <img class="ba__gen" src="assets/slider/084_gen.jpg" alt="Generated Diatomea plate">
+            <div class="ba__reveal"><img src="assets/slider/084_real.jpg" alt="Real Tafel 84, Navicula, Diatomea"></div>
+            <div class="ba__handle"></div>
+            <span class="ba__label ba__label--real">Real</span>
+            <span class="ba__label ba__label--gen">Generated</span>
+            <input type="range" class="ba__range" min="0" max="100" value="50" aria-label="Reveal real Tafel 84 vs generated">
+          </div>
+        </div>
+        <p class="ba__caption"><b>Tafel 84 — Navicula, Diatomea.</b> <span class="verdict ok">✓ correct black bg</span> — a genuine win.</p>
+      </div>
+      <div>
+        <div class="ba" id="ba-026">
+          <div class="ba__stage">
+            <img class="ba__gen" src="assets/slider/026_gen.jpg" alt="Generated Carmaris plate">
+            <div class="ba__reveal"><img src="assets/slider/026_real.jpg" alt="Real Tafel 26, Carmaris, Trachomedusae"></div>
+            <div class="ba__handle"></div>
+            <span class="ba__label ba__label--real">Real</span>
+            <span class="ba__label ba__label--gen">Generated</span>
+            <input type="range" class="ba__range" min="0" max="100" value="50" aria-label="Reveal real Tafel 26 vs generated">
+          </div>
+        </div>
+        <p class="ba__caption"><b>Tafel 26 — Carmaris, Trachomedusae.</b> <span class="verdict ok">✓ correct pale bg</span>, but the jellyfish rendered as an abstract cage.</p>
+      </div>
+      <div>
+        <div class="ba" id="ba-042">
+          <div class="ba__stage">
+            <img class="ba__gen" src="assets/slider/042_gen.jpg" alt="Generated Ostracion plate">
+            <div class="ba__reveal"><img src="assets/slider/042_real.jpg" alt="Real Tafel 42, Ostracion, Ostraciontes"></div>
+            <div class="ba__handle"></div>
+            <span class="ba__label ba__label--real">Real</span>
+            <span class="ba__label ba__label--gen">Generated</span>
+            <input type="range" class="ba__range" min="0" max="100" value="50" aria-label="Reveal real Tafel 42 vs generated">
+          </div>
+        </div>
+        <p class="ba__caption"><b>Tafel 42 — Ostracion, Ostraciontes.</b> <span class="verdict miss">✗ teal, not pale</span> — didn't move across two fine-tuning rounds.</p>
+      </div>
     </div>
 
-    <h3 style="font-family: var(--sans); font-size: 1.1rem; color: var(--ink); margin-top: 2.5rem;">Novel recombinations</h3>
-    <p class="intro" style="margin-top: 0.4rem;">Prompts that don't exist in the training set — a genus invented within a known order, or two orders blended. No ground truth to compare against; the question is plausibility, not accuracy.</p>
+    <h3 style="font-family: var(--font-sans); font-size: 0.85rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2.4rem;">Novel recombinations</h3>
+    <p class="caption">Prompts that don't exist in the training set. No ground truth — the question is plausibility.</p>
     <div class="novel-grid">
-      <figure><img src="assets/eval/novel/00.jpg" alt="Novel generation 1"><figcaption>discomedusae, "aurelia nova"</figcaption></figure>
-      <figure><img src="assets/eval/novel/01.jpg" alt="Novel generation 2"><figcaption>siphonophorae, "newly discovered deep-sea species"</figcaption></figure>
-      <figure><img src="assets/eval/novel/02.jpg" alt="Novel generation 3"><figcaption>radiolaria, "larger colonial species"</figcaption></figure>
-      <figure><img src="assets/eval/novel/03.jpg" alt="Novel generation 4"><figcaption>hexacoralla × radiolaria hybrid</figcaption></figure>
-      <figure><img src="assets/eval/novel/04.jpg" alt="Novel generation 5"><figcaption>ophiodea × siphonophorae hybrid</figcaption></figure>
-      <figure><img src="assets/eval/novel/05.jpg" alt="Novel generation 6"><figcaption>calcispongiae, "undiscovered species"</figcaption></figure>
+      <figure><img src="assets/eval/novel/00.jpg" alt="Novel generation 1"><figcaption>discomedusae · "aurelia nova"</figcaption></figure>
+      <figure><img src="assets/eval/novel/01.jpg" alt="Novel generation 2"><figcaption>siphonophorae · deep-sea species</figcaption></figure>
+      <figure><img src="assets/eval/novel/02.jpg" alt="Novel generation 3"><figcaption>radiolaria · colonial, larger</figcaption></figure>
+      <figure><img src="assets/eval/novel/03.jpg" alt="Novel generation 4"><figcaption>hexacoralla × radiolaria</figcaption></figure>
+      <figure><img src="assets/eval/novel/04.jpg" alt="Novel generation 5"><figcaption>ophiodea × siphonophorae</figcaption></figure>
+      <figure><img src="assets/eval/novel/05.jpg" alt="Novel generation 6"><figcaption>calcispongiae · undiscovered</figcaption></figure>
     </div>
   </div>
 </section>
 
 <section id="status">
-  <div class="wrap">
-    <div class="eyebrow">Where this stands</div>
-    <h2>Status &amp; next steps</h2>
-    <div class="status-grid">
+  <div class="wrap wrap--wide">
+    <div class="section-head">
+      <div class="eyebrow">Where this stands</div>
+      <h2>Status</h2>
+    </div>
+    <div class="status-cols">
       <div>
         <h3>Done</h3>
-        <ul>
-          <li>Scrape, dedup, caption — fully reproducible from scratch</li>
-          <li>1,102-figure documentation from Haeckel's own explanatory text</li>
-          <li>LoRA training script, verified end-to-end on the real GPU</li>
-          <li>124-epoch training run — loss plateaus around epoch 50, confirmed rather than assumed</li>
-          <li>Full evaluation report against real checkpoints (not a smoke test)</li>
-          <li>Background-color caption fix, traced to root cause and measured, not guessed</li>
-        </ul>
+        <div class="status-list">
+          <div class="item done">Scrape, dedup, caption — reproducible from scratch</div>
+          <div class="item done">1,102-figure documentation from Haeckel's own text</div>
+          <div class="item done">124-epoch run — plateau confirmed, not assumed</div>
+          <div class="item done">Full eval against real checkpoints</div>
+          <div class="item done">Background-color fix, root-caused and measured</div>
+        </div>
       </div>
       <div>
-        <h3>Not started / accepted as-is</h3>
-        <ul>
-          <li>Genus-specific structural fidelity (e.g. a jellyfish prompt rendering as an abstract non-jellyfish shape) — a separate, harder problem than background color, still open</li>
-          <li>Further background-color chasing — two rounds of more-epochs produced no net gain; treated as an accepted, understood limitation rather than a target for more compute</li>
-          <li>Companion project: <em>Haeckel's Mistakes</em> — comparing this adapter against one trained on Haeckel's earlier 1887 Challenger Report drawings, to isolate the idealization between the two</li>
-        </ul>
+        <h3>Open / accepted as-is</h3>
+        <div class="status-list">
+          <div class="item open">Genus-specific anatomy (e.g. jellyfish → abstract shape)</div>
+          <div class="item open">Further bg-color chasing — two rounds, no net gain, stopped</div>
+          <div class="item open"><em>Haeckel's Mistakes</em> — companion adapter on the 1887 Challenger Report drawings</div>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
 <footer>
-  <div class="wrap">
-    <p>Code: MIT license. Training data (Haeckel's plates, 1899–1904) is public domain.</p>
-    <p><a href="https://github.com/hulashc/haeckel-lora">github.com/hulashc/haeckel-lora</a></p>
+  <div class="wrap wrap--wide">
+    <span>Code: MIT. Plates (1899–1904): public domain.</span>
+    <a href="https://github.com/hulashc/haeckel-lora">github.com/hulashc/haeckel-lora</a>
   </div>
 </footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // Resolves a relative asset path to itself, unless a preview build has supplied inlined
+  // data-URI overrides via window.__ASSET_DATA__ (used for the sandboxed Artifact preview,
+  // which can't load relative files -- a no-op on the real GitHub Pages site).
+  function resolveAsset(path) {
+    return (window.__ASSET_DATA__ && window.__ASSET_DATA__[path]) || path;
+  }
+
+  // ---- before/after sliders ----
+  document.querySelectorAll(".ba").forEach(function (ba) {
+    var range = ba.querySelector(".ba__range");
+    var stage = ba.querySelector(".ba__stage");
+    function set(v) { stage.style.setProperty("--pos", v + "%"); }
+    range.addEventListener("input", function (e) { set(e.target.value); });
+    set(range.value);
+  });
+
+  // ---- training scrubber ----
+  var STEPS = [
+    { step: 750, img: "assets/progress/step-000750.jpg", phase: "converging" },
+    { step: 1500, img: "assets/progress/step-001500.jpg", phase: "plateaued" },
+    { step: 2250, img: "assets/progress/step-002250.jpg", phase: "plateaued" },
+    { step: 3000, img: "assets/progress/step-003000.jpg", phase: "plateaued" }
+  ];
+  var scrubRange = document.getElementById("scrub-range");
+  var scrubImg = document.getElementById("scrub-img");
+  var scrubStep = document.getElementById("scrub-step");
+  var scrubBadge = document.getElementById("scrub-badge");
+  function renderScrub(i) {
+    var s = STEPS[i];
+    scrubImg.src = resolveAsset(s.img);
+    scrubStep.textContent = s.step.toLocaleString();
+    scrubBadge.textContent = "step " + s.step + " · " + s.phase;
+    scrubBadge.className = "scrubber__badge is-" + s.phase;
+  }
+  scrubRange.addEventListener("input", function (e) { renderScrub(+e.target.value); });
+  renderScrub(0);
+
+  // ---- tag/prompt explorer ----
+  var PLATES = [
+    { plate: "001", genus: "Circogonia", order: "Phaeodaria", german: "Röhrstrahlinge", tag: "pale", actual: "black", verdict: "miss" },
+    { plate: "009", genus: "Maeandrina", order: "Hexacoralla", german: "Sechsstrahlige Sternkorallen", tag: "black", actual: "black", verdict: "ok" },
+    { plate: "017", genus: "Porpema", order: "Siphonophorae", german: "Staatsquallen", tag: "pale", actual: "teal", verdict: "miss" },
+    { plate: "026", genus: "Carmaris", order: "Trachomedusae", german: "Kolbenquallen", tag: "pale", actual: "pale", verdict: "ok" },
+    { plate: "034", genus: "Pediastrum", order: "Melethallia", german: "Gesellige Algetten", tag: "pale", actual: "pale", verdict: "ok" },
+    { plate: "042", genus: "Ostracion", order: "Ostraciontes", german: "Kofferfische", tag: "pale", actual: "teal", verdict: "miss" },
+    { plate: "051", genus: "Collosphaera", order: "Polycyttaria", german: "Vereins-Strahlinge", tag: "pale", actual: "black", verdict: "miss" },
+    { plate: "059", genus: "Strobalia", order: "Siphonophorae", german: "Staatsquallen", tag: "pale", actual: "teal", verdict: "miss" },
+    { plate: "067", genus: "Vampyrus", order: "Chiroptera", german: "Fledertiere", tag: "pale", actual: "pale", verdict: "ok" },
+    { plate: "076", genus: "Alima", order: "Thoracostraca", german: "Panzerkrebse", tag: "black", actual: "black", verdict: "ok" },
+    { plate: "084", genus: "Navicula", order: "Diatomea", german: "Schachtellinge", tag: "black", actual: "black", verdict: "ok" },
+    { plate: "092", genus: "Alsophila", order: "Filicinae", german: "Laubfarne", tag: "black", actual: "full outdoor scene", verdict: "na" }
+  ];
+  var chipList = document.getElementById("explorer-chips");
+  var view = document.getElementById("explorer-view");
+
+  function renderView(p) {
+    var verdictText = p.verdict === "ok"
+      ? "✓ matches caption tag (" + p.tag + ")"
+      : p.verdict === "miss"
+        ? "✗ caption says " + p.tag + ", rendered " + p.actual
+        : "— full scene, background tag doesn't apply";
+    var realSrc = resolveAsset('assets/explorer/' + p.plate + '_real.jpg');
+    var genSrc = resolveAsset('assets/explorer/' + p.plate + '_gen.jpg');
+    view.innerHTML =
+      '<div class="explorer__pair">' +
+        '<figure><img src="' + realSrc + '" alt="Real Tafel ' + p.plate + '"><figcaption>Real</figcaption></figure>' +
+        '<figure><img src="' + genSrc + '" alt="Generated for Tafel ' + p.plate + '"><figcaption>Generated</figcaption></figure>' +
+      '</div>' +
+      '<div class="explorer__meta">' +
+        '<span class="name">' + p.genus + ' <span class="german">— ' + p.german + '</span></span>' +
+        '<span class="mono" style="color:var(--text-dim);">Tafel ' + p.plate + '</span>' +
+      '</div>' +
+      '<span class="explorer__verdict ' + p.verdict + '">' + verdictText + '</span>';
+  }
+
+  PLATES.forEach(function (p, i) {
+    var chip = document.createElement("button");
+    chip.className = "chip" + (i === 0 ? " is-active" : "");
+    chip.innerHTML =
+      '<span><span class="chip-order">' + p.order + '</span><br><span class="chip-genus">' + p.genus + '</span></span>' +
+      '<span class="chip-pill ' + p.verdict + '"></span>';
+    chip.addEventListener("click", function () {
+      chipList.querySelectorAll(".chip").forEach(function (c) { c.classList.remove("is-active"); });
+      chip.classList.add("is-active");
+      renderView(p);
+    });
+    chipList.appendChild(chip);
+  });
+  renderView(PLATES[0]);
+})();
+</script>
 
 </body>
 </html>
