@@ -3,7 +3,16 @@
 Read this before doing anything else in this repo. `README.md` has the project pitch and plan;
 this file is state — what's actually done, what broke, what's next.
 
-## Status (as of 2026-09-02)
+## Status (as of 2026-09-03)
+
+Latest: a real caption-truncation bug was found and fixed (item 10) — the model was silently
+never told about a plate's structural details (tentacle counts, symmetry, color words) on 16/100
+plates because the truncation algorithm gave up after the first sentence that didn't fit a
+77-token budget, even with token budget to spare. Fixed, retrained, evaluated: real, verifiable
+shape-fidelity progress on the targeted plates (not a full fix), no regression on the novel set,
+and a small *incidental* dip in background-color accuracy (5/11 vs. 6/11) consistent with the
+already-documented "continued training reshuffles background correctness without a systematic
+direction" noise pattern — not something to chase per the existing item 9 decision.
 
 Data pipeline is done and verified. Training ran far longer than the original 50-epoch probe —
 up to step 3100 (~epoch 124) — but loss plateaued around epoch 50 and never really moved after
@@ -134,6 +143,63 @@ progress with a known, accepted limitation, not something validated as "done" in
    no further background-color work is planned. If anyone revisits it anyway: check the caption's
    tag *position* (currently right after the trigger word) or a bigger LR shock rather than more
    epochs at 5e-5, since two rounds of "more epochs, same approach" produced zero net gain.
+10. **Found and fixed a real caption-truncation bug** (2026-09-03), prompted by the user reporting
+    generated images "aren't great at all" and specifically pointing at the showcase's before/after
+    slider for plate 026 (Carmaris, Trachomedusae -- a jellyfish), whose generated version was an
+    abstract cage shape, not a jellyfish. First ruled out a display/CSS bug (the slider's real/
+    generated image pairs are pixel-identical, `object-fit: cover` applied identically to both
+    layers -- confirmed via a dedicated investigation, no scaling mismatch in the UI). That
+    confirmed it was a content-fidelity problem, which led to inspecting `scripts/
+    build_captions.py`'s 77-token truncation algorithm (`_greedy_chain`/`fit_caption`) against the
+    real source notes in `plate_details.json`.
+
+    **The bug**: the algorithm stopped permanently at the first clause of a plate's note that
+    didn't fit the token budget, never trying later clauses or comma-segments even with plenty of
+    budget left over. Plate 026's caption used only 47/77 tokens and silently dropped the *only*
+    clause mentioning any jellyfish structure at all: "...view from below shows six red
+    leaf-shaped gonads forming a six-rayed rosette around the closed mouth, with twelve auditory
+    vesicles and twelve tentacles at the umbrella margin." The model was never told about
+    tentacles or radial symmetry for this plate. Same pattern on plates 051, 059 (also dropped an
+    explicit color word, "pale-bluish," on a plate that's one of item 9's persistent teal-
+    background failures), and 092.
+
+    **The fix**: rewrote `_greedy_chain`/`fit_caption` to skip a clause/comma-segment that doesn't
+    fit and keep trying later ones, instead of stopping dead -- always real text, original order,
+    no fabrication or reordering (same discipline as the background-color tag). Caught and fixed a
+    self-introduced punctuation artifact along the way (an over-eager version stripped legitimate
+    mid-sentence punctuation, e.g. turning "...lattice shell; four equatorial..." into "...lattice
+    shell four equatorial..." -- fixed by only stripping punctuation at the specific comma-joiner
+    boundary that actually needed it, not universally). Verified end-to-end: regenerating
+    `data/processed/captions.jsonl` changes exactly 16/100 captions, zero regressions (no caption
+    gets shorter/worse), 042 and 076 confirmed unaffected (their full notes already fit under 77
+    tokens -- a separate, out-of-scope problem: the genus-matched figure just isn't very
+    descriptive; would need picking a different sibling figure, not a truncation fix).
+
+    **Retrained**: continued from `bg-caption-run-2/final`, 30 epochs / 750 steps, LR 7e-5 (between
+    the 5e-5 fine-tuning-tail rate and the original 1e-4), `--train_text_encoder` kept on since
+    this is new *text* content the text encoder needs room to move on -> `outputs/checkpoints/
+    caption-fix-run-1/final`. Clean finish with a proper `final/` checkpoint. Full eval at
+    `outputs/eval/caption-fix-run-1/`.
+
+    **Honest result -- real but partial, not a full fix**:
+    - Plate 026: the new "six-rayed rosette around the closed mouth" content is now clearly and
+      consistently visible in generated output (a direct, traceable win -- content that was
+      silently dropped now visibly influences the result). The overall composition still doesn't
+      read as "jellyfish" in the eval's fixed-seed generation (an ornamental medallion, not a
+      bell-with-tentacles) -- but training *validation* samples (different seed, sampled every 5
+      epochs during the run) showed clearer bell-shaped jellyfish forms with tentacle fringe, so
+      the improvement is real but seed-sensitive, not fully locked in.
+    - Plates 051, 059, 092: modest, consistent shape-detail enrichment tracking their new caption
+      content (capsule texture, stacked bells, fern crown structure). No dramatic transformation,
+      no regression.
+    - Novel set: no regression vs. `bg-caption-run-2`; one prompt (`discomedusae, "aurelia nova"`)
+      now shows an actual jellyfish-bell shape -- a plausible sign of some transferable jellyfish-
+      structure concept, not just plate-026-specific memorization.
+    - Background-color: **incidentally dipped**, 5/11 vs. the prior 6/11 -- plates 001 and 026
+      both flipped correct->wrong, none flipped the other way. Plate 001's caption didn't even
+      change in this run, so this is the same "continued training reshuffles background
+      correctness without a systematic direction" noise pattern already documented in item 9, not
+      a new problem, and not something this run was targeting. Checked per plan, not chased.
 
 **Known issue: thermal throttling.** Partway through the 50-epoch run the RTX 3060 **Laptop** GPU
 hit 84°C and throttled hard — clock dropped from ~2100MHz to ~315MHz, step time went from ~6s to
@@ -146,8 +212,10 @@ progress.
 
 **Not started / open questions:** why the run stopped around step 3100 without a `final/`
 checkpoint or any error log (nobody's investigated — it may just have been manually interrupted
-in a prior session); whether the per-plate fidelity issues (wrong background color, morphology
-drift) need a caption/data fix rather than more training, given loss has already plateaued.
+in a prior session); why plate 026's improved caption content shows up clearly in training
+validation samples but less consistently in the eval's fixed-seed generation — worth checking
+across a few seeds before concluding anything further; the still out-of-scope figure-selection
+issue on plates 042/076 (item 10).
 
 ## Environment
 
@@ -188,14 +256,15 @@ scripts/                all pipeline + training scripts, each with a docstring e
                          reading); scripts/train_lora.py trains, scripts/eval_lora.py evaluates
 outputs/checkpoints/    LoRA checkpoints (gitignored) — step-N/ through step-3000/, no final/ (see
                         status above); loss_log.csv covers the whole run, steps 1-3100.
-                        bg-caption-run/ and bg-caption-run-2/ are separate continuations (own
-                        step-N/, final/, loss_log.csv each) -- see items 8-9 above. Both are
-                        roughly equivalent "current best" checkpoints.
-outputs/samples/        periodic validation samples from training (gitignored); bg-caption-run/
-                        and bg-caption-run-2/ subdirs for those continuation runs
+                        bg-caption-run/, bg-caption-run-2/, caption-fix-run-1/ are separate
+                        continuations (own step-N/, final/, loss_log.csv each) -- see items 8-10
+                        above. caption-fix-run-1/final is the current best checkpoint.
+outputs/samples/        periodic validation samples from training (gitignored); bg-caption-run/,
+                        bg-caption-run-2/, caption-fix-run-1/ subdirs for those continuation runs
 outputs/eval/           eval_lora.py output (gitignored) -- step-3000/ (pre-fix baseline),
                         bg-caption-run-final/ (25-epoch fix, renamed from a `final`-name
-                        collision, see item 9), bg-caption-run-2/final/ (pale-oversample attempt).
+                        collision, see item 9), bg-caption-run-2/final/ (pale-oversample attempt),
+                        caption-fix-run-1/final/ (truncation-bug fix, item 10 -- current best).
                         Always pass --eval_dir explicitly per run; the default namespaces only by
                         checkpoint dir *name*, and multiple checkpoints are named `final`.
 ```
@@ -203,15 +272,19 @@ outputs/eval/           eval_lora.py output (gitignored) -- step-3000/ (pre-fix 
 ## Next step
 
 Background-color fidelity is a closed topic per user decision (item 9 above) — don't reopen it
-without being asked. Current best checkpoints (`bg-caption-run/final` and `bg-caption-run-2/final`
-are roughly equivalent, 6/11 faithfulness-set background accuracy, good style/novel-generation
-quality) are good enough to build on. Reasonable next moves:
-1. Genus-morphology drift (e.g. the Carmaris jellyfish rendering as an abstract cage shape rather
-   than a jellyfish) is still unaddressed and was always a separate, harder problem than
-   background color — worth a look if further quality work is wanted.
-2. The project has a GitHub Pages showcase (per git history) — check whether it should be
-   updated with samples/eval results from these newer checkpoints rather than the original
-   50-epoch probe it may have been built from.
-3. Otherwise, treat the adapter as usable for its stated goal (novel Haeckel-style generation)
+without being asked; the item-10 dip is expected noise, not a regression to fix. Current best
+checkpoint is `caption-fix-run-1/final`. Reasonable next moves:
+1. Item 10's plate-026 result was seed-sensitive (clear jellyfish forms in training validation
+   samples, a more abstract medallion in the eval's fixed seed) — worth generating a few more
+   seeds against `caption-fix-run-1/final` before concluding whether the shape-fidelity fix
+   "worked" or just partially worked. Cheap (inference only, no retraining) and would sharpen the
+   verdict considerably.
+2. The out-of-scope figure-selection issue from item 10 (plates 042, 076 have thin captions even
+   at full length because the genus-matched figure isn't very descriptive) — would need
+   `select_note` to consider sibling figures on the same plate, not just the genus match.
+3. The showcase (`docs/`) reflects `bg-caption-run-2/final`, not `caption-fix-run-1/final` — it
+   was last updated before this fix landed. Worth refreshing once/if the seed-sensitivity
+   question above is resolved, so the showcase doesn't overclaim or underclaim the fix.
+4. Otherwise, treat the adapter as usable for its stated goal (novel Haeckel-style generation)
    rather than continuing to chase per-plate faithfulness metrics — the novel set has
    consistently been the stronger, more relevant result across every eval run so far.
