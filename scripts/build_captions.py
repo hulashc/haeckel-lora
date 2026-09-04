@@ -45,9 +45,18 @@ plate is confirmed absent from the scan) we fall back to the original tags-only 
 
 Every caption is fit to SD1.5's real 77-token CLIP limit using the actual tokenizer (not a
 character-count guess) so nothing important silently falls off the end at train time: try the
-full note, then whole sentence/clause chunks, then whole comma-segments, then words, in that
-order, always keeping a real prefix of the real text. 22/100 plates' full notes exceed 77
-tokens, so this isn't a rare edge case.
+full note; if it doesn't fit, greedily pack as many clauses (sentence/semicolon-delimited) as fit
+in original order, but a clause that *doesn't* fit is skipped rather than treated as a hard stop
+-- its comma-segments get a shot at partial credit, and packing continues into later clauses
+regardless, so leftover token budget doesn't go unused just because one clause happened to be
+long. (An earlier version of this function stopped dead at the first clause that didn't fit,
+even with 30+ tokens of budget left over and the plate's only structurally-descriptive clause
+sitting unused right after it -- e.g. plate 026's Carmaris caption used only 47/77 tokens and
+silently dropped its only mention of tentacles. Fixed 2026-09-03; see CLAUDE.md for the incident
+and the before/after caption diffs across the dataset.) If even the first clause's first
+comma-segment alone overflows the budget, falls back to word-level truncation. 22/100 plates'
+full notes exceed 77 tokens, so this isn't a rare edge case; 16/100 plates' final captions change
+under this fix (all gaining real content, none regressing).
 
 Usage:
     python scripts/build_captions.py
@@ -120,43 +129,57 @@ def _candidate(prefix: str, note_text: str | None) -> str:
     return f"{prefix}, {note_text}, {SUFFIX}" if note_text else f"{prefix}, {SUFFIX}"
 
 
-def _greedy_chain(tokenizer, prefix: str, units: list[str], joiner: str) -> str | None:
-    """Greedily accumulate units (clauses/comma-segments), keeping the largest prefix of units
-    that still fits. Returns the winning candidate caption, or None if even one unit doesn't fit."""
-    acc = ""
-    best = None
+def _greedy_chain(tokenizer, prefix: str, acc: str, units: list[str], joiner: str) -> str:
+    """Greedily append `units` (already in original order) onto `acc`. A unit that fits within
+    the token budget is kept; one that doesn't is skipped -- not a hard stop -- so a later,
+    shorter unit (possibly carrying more visually-relevant content) still gets a chance. Only
+    ever appends real, verbatim text in its original order; never fabricates or reorders."""
     for u in units:
-        trial = (acc + joiner + u) if acc else u
+        u = u.strip()
+        if not u:
+            continue
+        # Strip acc's trailing separator punctuation before joining -- acc may already end in
+        # ";" or "," from a previous clause/segment, and joining that straight into `joiner`
+        # (itself ", " or " ") would otherwise produce doubled punctuation like "Giltsch;, view".
+        acc_stripped = acc.rstrip(".,;").strip()
+        trial = (acc_stripped + joiner + u) if acc_stripped else u
         trial_clean = trial.strip().rstrip(".,;").strip()
-        cand = _candidate(prefix, trial_clean)
-        if _token_len(tokenizer, cand) <= MAX_TOKENS:
+        if _token_len(tokenizer, _candidate(prefix, trial_clean)) <= MAX_TOKENS:
             acc = trial
-            best = cand
-        else:
-            break
-    return best
+    return acc
 
 
 def fit_caption(tokenizer, prefix: str, note: str) -> str:
-    """Fit `note` into the caption budget, always keeping a real prefix of the real text --
-    never generating new content. Tries progressively finer-grained truncation points."""
+    """Fit `note` into the caption budget, always keeping real text in original order -- never
+    generating new content. Packs as many clauses/comma-segments as fit, skipping (not stopping
+    at) any single unit that doesn't, so leftover budget isn't wasted on an early truncation."""
     full = _candidate(prefix, note)
     if _token_len(tokenizer, full) <= MAX_TOKENS:
         return full
 
-    clauses = re.split(r"(?<=[.;])\s+", note)
-    by_clause = _greedy_chain(tokenizer, prefix, clauses, " ")
-    if by_clause is not None:
-        return by_clause
+    clauses = [c.strip() for c in re.split(r"(?<=[.;])\s+", note) if c.strip()]
+    acc = ""
+    for clause in clauses:
+        # Space-joined, unlike the comma-joiner below -- a clause already ending in "." or ";"
+        # reads naturally with " " + the next clause ("shell; four spines...", "opening. Next
+        # clause..."), so acc's own trailing punctuation is kept, not stripped, here.
+        trial = (acc + " " + clause) if acc else clause
+        trial_clean = trial.strip().rstrip(".,;").strip()
+        if _token_len(tokenizer, _candidate(prefix, trial_clean)) <= MAX_TOKENS:
+            acc = trial
+        else:
+            # Whole clause doesn't fit -- try its comma-segments for partial credit, then
+            # continue on to the *next* clause regardless (this is the fix: the old version
+            # stopped dead here even when later, shorter clauses would still have fit).
+            acc = _greedy_chain(tokenizer, prefix, acc, clause.split(", "), ", ")
 
-    # Even the first clause alone overflows -- split it further on commas.
-    comma_parts = clauses[0].split(", ")
-    by_comma = _greedy_chain(tokenizer, prefix, comma_parts, ", ")
-    if by_comma is not None:
-        return by_comma
+    acc_clean = acc.strip().rstrip(".,;").strip()
+    if acc_clean:
+        return _candidate(prefix, acc_clean)
 
-    # Even the first comma-segment overflows -- fall back to word-level truncation.
-    words = comma_parts[0].split(" ")
+    # Nothing at clause/comma granularity fit at all -- only happens if the very first clause's
+    # first comma-segment alone overflows the budget. Same word-level fallback as before.
+    words = clauses[0].split(", ")[0].split(" ")
     for n in range(len(words), 0, -1):
         cand = _candidate(prefix, " ".join(words[:n]).rstrip(",;"))
         if _token_len(tokenizer, cand) <= MAX_TOKENS:
