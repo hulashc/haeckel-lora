@@ -184,11 +184,16 @@ progress with a known, accepted limitation, not something validated as "done" in
     **Honest result -- real but partial, not a full fix**:
     - Plate 026: the new "six-rayed rosette around the closed mouth" content is now clearly and
       consistently visible in generated output (a direct, traceable win -- content that was
-      silently dropped now visibly influences the result). The overall composition still doesn't
-      read as "jellyfish" in the eval's fixed-seed generation (an ornamental medallion, not a
-      bell-with-tentacles) -- but training *validation* samples (different seed, sampled every 5
-      epochs during the run) showed clearer bell-shaped jellyfish forms with tentacle fringe, so
-      the improvement is real but seed-sensitive, not fully locked in.
+      silently dropped now visibly influences the result). The eval's single fixed seed (45)
+      landed on an ornamental medallion, not a bell-with-tentacles, which looked like a
+      seed-sensitivity concern -- **resolved by a follow-up 6-seed check** (`scripts/
+      _seed_check_026.py`, `outputs/eval/seed-check-026/`, same checkpoint/prompt/settings as the
+      real eval, seeds 45/1/7/100/2026/9999): 4 of 6 seeds show clear jellyfish bell-and-tentacle
+      forms (domed caps, dangling wavy fringe) in multiple panels, and **6 of 6 show the rosette
+      motif consistently**. The eval's fixed seed (45) turned out to be one of only two
+      (with seed 7) that land on the more abstract floral-medallion look -- i.e. the real eval
+      contact sheet happened to sample an unrepresentative case. The fix works meaningfully better
+      than the single-seed eval suggested; it just isn't visible from one contact-sheet image.
     - Plates 051, 059, 092: modest, consistent shape-detail enrichment tracking their new caption
       content (capsule texture, stacked bells, fern crown structure). No dramatic transformation,
       no regression.
@@ -212,10 +217,10 @@ progress.
 
 **Not started / open questions:** why the run stopped around step 3100 without a `final/`
 checkpoint or any error log (nobody's investigated — it may just have been manually interrupted
-in a prior session); why plate 026's improved caption content shows up clearly in training
-validation samples but less consistently in the eval's fixed-seed generation — worth checking
-across a few seeds before concluding anything further; the still out-of-scope figure-selection
-issue on plates 042/076 (item 10).
+in a prior session); the still out-of-scope figure-selection issue on plates 042/076 (item 10).
+(Plate 026's seed-sensitivity question from item 10 is resolved — see the 6-seed check
+documented there; the caption fix genuinely helped, the eval's single seed just wasn't
+representative.)
 
 ## Environment
 
@@ -274,17 +279,19 @@ outputs/eval/           eval_lora.py output (gitignored) -- step-3000/ (pre-fix 
 Background-color fidelity is a closed topic per user decision (item 9 above) — don't reopen it
 without being asked; the item-10 dip is expected noise, not a regression to fix. Current best
 checkpoint is `caption-fix-run-1/final`. Reasonable next moves:
-1. Item 10's plate-026 result was seed-sensitive (clear jellyfish forms in training validation
-   samples, a more abstract medallion in the eval's fixed seed) — worth generating a few more
-   seeds against `caption-fix-run-1/final` before concluding whether the shape-fidelity fix
-   "worked" or just partially worked. Cheap (inference only, no retraining) and would sharpen the
-   verdict considerably.
+1. The showcase (`docs/`) still reflects `bg-caption-run-2/final`, not `caption-fix-run-1/final`
+   — it was last updated before this fix landed, so it neither shows the improved plate-026
+   result nor mentions the truncation bug. Worth refreshing now that the 6-seed check confirms
+   the fix is real, so the showcase doesn't undersell it.
 2. The out-of-scope figure-selection issue from item 10 (plates 042, 076 have thin captions even
    at full length because the genus-matched figure isn't very descriptive) — would need
    `select_note` to consider sibling figures on the same plate, not just the genus match.
-3. The showcase (`docs/`) reflects `bg-caption-run-2/final`, not `caption-fix-run-1/final` — it
-   was last updated before this fix landed. Worth refreshing once/if the seed-sensitivity
-   question above is resolved, so the showcase doesn't overclaim or underclaim the fix.
+3. Consider applying the same 6-seed-check discipline to a few other faithfulness plates before
+   trusting any single-seed eval result at face value going forward — item 10's experience is
+   that one fixed seed can land on an unrepresentative outcome even when the underlying fix
+   works; this project's `eval_lora.py` has always used one seed per prompt for reproducibility,
+   which is good for comparing checkpoints but apparently not sufficient on its own for judging
+   whether a fix "worked" on a single plate.
 4. Otherwise, treat the adapter as usable for its stated goal (novel Haeckel-style generation)
    rather than continuing to chase per-plate faithfulness metrics — the novel set has
    consistently been the stronger, more relevant result across every eval run so far.
